@@ -1,0 +1,22 @@
+# Desarrollo local únicamente. En producción: binario único (o Dockerfile en deploy/).
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: universidad-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: universidad
+      POSTGRES_PASSWORD: universidad_dev
+      POSTGRES_DB: universidad
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U universidad -d universidad"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
