@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/elvaivas/universidad-app/backend/internal/academic"
 	"github.com/elvaivas/universidad-app/backend/internal/auth"
 	"github.com/elvaivas/universidad-app/backend/internal/catalog"
 	"github.com/elvaivas/universidad-app/backend/internal/config"
@@ -64,6 +65,7 @@ func main() {
 	httpSrv := httpapi.NuevoServer(svc, cfg.JWTSecret, 0.5, 5)
 	httpSrv.MontarCatalogo(&catalog.Servicio{Pool: pool})
 	httpSrv.Montar2FA(svc)
+	httpSrv.MontarAcademico(&academic.Servicio{Pool: pool})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

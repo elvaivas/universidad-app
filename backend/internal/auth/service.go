@@ -83,6 +83,32 @@ func buscarUsuarioPorID(ctx context.Context, pool *pgxpool.Pool, id string) (*Us
 	return &u, nil
 }
 
+// seccionesDe alimenta el claim seccion_ids: secciones donde es profesor
+// o tiene inscripción activa (Flujo 1 del plano).
+func (s *Servicio) seccionesDe(ctx context.Context, userID string) []string {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT id::text FROM secciones WHERE profesor_id=$1::uuid AND activo
+		 UNION
+		 SELECT i.seccion_id::text FROM inscripciones i
+		 WHERE i.estudiante_id=$1::uuid AND i.estado='activa'`, userID)
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return []string{}
+		}
+		ids = append(ids, id)
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	return ids
+}
+
 func voceriaMayorNivel(ctx context.Context, pool *pgxpool.Pool, userID string) (string, error) {
 	var nivel string
 	err := pool.QueryRow(ctx,
@@ -197,9 +223,11 @@ func (s *Servicio) Refresh(ctx context.Context, refreshToken, ip, ua string) (*P
 
 func (s *Servicio) emitirPar(ctx context.Context, u *Usuario, ip, ua string) (*ParTokens, error) {
 	voceria, _ := voceriaMayorNivel(ctx, s.Pool, u.ID)
+	seccionIDs := s.seccionesDe(ctx, u.ID)
 
 	access, err := EmitirToken(u.ID, Claims{
 		RolBase: u.RolBase, Voceria: voceria, EsMantenedor: u.EsMantenedor,
+		SeccionIDs: seccionIDs,
 	}, s.JWTSecreto, s.AccessTTL)
 	if err != nil {
 		return nil, fmt.Errorf("firmar access token: %w", err)
