@@ -1,7 +1,7 @@
-// Rutas del chat: historial paginado, borrado con moderación y el socket
-// WebSocket /ws/secciones/{sid}. El navegador no puede enviar headers en el
-// upgrade WS, así que el JWT viaja como ?token= (uso aceptado: WSS en prod,
-// sesión corta de 15 min y validación de membresía al conectar).
+// Rutas del chat: historial paginado por canal, borrado con moderación y el
+// socket WebSocket /ws/secciones/{sid}. El navegador no puede enviar headers
+// en el upgrade WS, así que el JWT viaja como ?token= (uso aceptado: WSS en
+// prod, sesión corta de 15 min y validación de membresía al conectar).
 package httpapi
 
 import (
@@ -47,7 +47,11 @@ func listarMensajes(svc *chat.Servicio) http.HandlerFunc {
 			return
 		}
 		lim, off := paginacionDe(r)
-		datos, total, err := svc.Listar(r.Context(), sid, lim, off)
+		canal := r.URL.Query().Get("canal")
+		if canal != chat.CanalAnuncios {
+			canal = chat.CanalGeneral
+		}
+		datos, total, err := svc.Listar(r.Context(), sid, canal, lim, off)
 		if err != nil {
 			escribirError(w, http.StatusInternalServerError, "error interno")
 			return
@@ -105,14 +109,16 @@ func wsChat(svc *chat.Servicio, hub *chat.Hub, jwtSecreto string) http.HandlerFu
 		defer conn.Close(websocket.StatusNormalClosure, "adiós")
 
 		autorID := claims.Subject
-		hub.Atender(r.Context(), sid, conn, func(cuerpo string) error {
-			m, err := svc.Guardar(r.Context(), sid, autorID, cuerpo)
+		hub.Atender(r.Context(), sid, conn, func(cuerpo, canal string) error {
+			m, err := svc.Guardar(r.Context(), sid, autorID, cuerpo, canal)
 			if err != nil {
 				return err
 			}
+			// nombre del autor para la sala (los demás lo ven con nombre real)
 			nombre := claims.RolBase
 			_ = svc.Pool.QueryRow(r.Context(), `SELECT nombre FROM users WHERE id = $1::uuid`, autorID).Scan(&nombre)
 			m.AutorNom = nombre
+			m.AutorRol = chat.InsigniaPublica(r.Context(), svc.Pool, autorID, sid)
 			b, _ := json.Marshal(m)
 			hub.Difundir(sid, chat.Evento{Tipo: "mensaje", Data: b})
 			return nil

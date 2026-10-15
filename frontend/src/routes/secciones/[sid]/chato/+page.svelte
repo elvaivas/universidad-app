@@ -6,6 +6,7 @@
 
 	const sid = $page.params.sid;
 
+	let canal = 'general'; // general | anuncios
 	let historial = [];
 	let cargando = true;
 	let error = '';
@@ -14,19 +15,19 @@
 	$: if ($sesion.estado === 'anonimo') goto('/login');
 	$: if ($sesion.estado === 'activa' && !intentado) {
 		intentado = true;
-		iniciar();
+		conectar();
 	}
 
 	let estado = 'conectando'; // conectando | en-vivo | caido
 	let texto = '';
 	let chat = null;
 
-	async function iniciar() {
+	async function cargar() {
 		cargando = true;
 		try {
-			const p = await mensajes(sid);
+			const p = await mensajes(sid, { canal });
 			historial = Array.isArray(p?.datos) ? p.datos : [];
-			conectar();
+			scrollAbajo();
 		} catch (e) {
 			error = e.message;
 		} finally {
@@ -39,6 +40,7 @@
 		estado = 'conectando';
 		chat = conectarChat(sid, {
 			onMensaje: (m) => {
+				if (m.canal !== canal) return; // mensaje de la otra pestaña: no interviene
 				historial = [...historial, m];
 				const vistos = new Set();
 				historial = historial.filter((x) => !vistos.has(x.id) && vistos.add(x.id));
@@ -50,12 +52,18 @@
 			onError: (msg) => (error = msg),
 			onEstado: (s) => (estado = s)
 		});
+		cargar();
+	}
+
+	async function cambiarCanal(nuevo) {
+		canal = nuevo;
+		await cargar();
 	}
 
 	function enviar() {
 		const cuerpo = texto.trim();
 		if (!cuerpo) return;
-		if (!chat?.enviar(cuerpo)) {
+		if (!chat?.enviar(cuerpo, canal)) {
 			error = 'conexión caída; reconectando…';
 			conectar();
 			return;
@@ -102,6 +110,11 @@
 		</span>
 	</div>
 
+	<nav class="pestanas">
+		<button class:active={canal === 'general'} on:click={() => cambiarCanal('general')}>General</button>
+		<button class:active={canal === 'anuncios'} on:click={() => cambiarCanal('anuncios')}>Anuncios</button>
+	</nav>
+
 	{#if cargando}<p>Cargando…</p>{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 
@@ -109,7 +122,11 @@
 		{#each historial || [] as m}
 			<div class="fila {m.autor_id === $sesion.usuario?.sub ? 'propio' : ''}">
 				<div class="burbuja">
-					<span class="meta">{m.autor_nombre} · {hora(m.created_at)}</span>
+					<span class="meta">
+						{m.autor_nombre}
+						{#if m.autor_rol}<em class="insignia {m.autor_rol}">{m.autor_rol}</em>{/if}
+						· {hora(m.created_at)}
+					</span>
 					<p>{m.cuerpo}</p>
 				</div>
 				<button class="borrar" title="Borrar mensaje" on:click={() => borrar(m)}>✕</button>
@@ -117,9 +134,12 @@
 		{/each}
 	</div>
 
+	{#if canal === 'anuncios' && !($sesion.usuario?.rol_base === 'profesor' || $sesion.usuario?.es_mantenedor || $sesion.usuario?.voceria === 'clase')}
+		<p class="meta">Solo el profesor, un vocero de clase o un mantenedor publican anuncios.</p>
+	{/if}
 	<form class="entrada" on:submit|preventDefault={enviar}>
-		<input bind:value={texto} placeholder="Escribe un mensaje…" maxlength="2000" />
-		<button type="submit" disabled={!texto.trim()}>Enviar</button>
+		<input bind:value={texto} placeholder={canal === 'anuncios' ? 'Publicar un anuncio…' : 'Escribe un mensaje…'} maxlength="2000" />
+		<button type="submit" disabled={!texto.trim()}>{canal === 'anuncios' ? 'Publicar' : 'Enviar'}</button>
 	</form>
 {/if}
 
@@ -129,13 +149,26 @@
 	.indicador.en-vivo { color: #4ade80; }
 	.indicador.conectando { color: #facc15; }
 	.indicador.caido { color: #f87171; }
-	.historial { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; max-height: 60vh; overflow-y: auto; }
+	.pestanas { display: flex; gap: 0.5rem; margin: 0.6rem 0; }
+	.pestanas button {
+		padding: 0.4rem 1rem; border-radius: 8px; border: 1px solid #334155;
+		background: #0f172a; color: #94a3b8; cursor: pointer; font-weight: 600;
+	}
+	.pestanas button.active { background: #1e293b; color: #7dd3fc; border-color: #0ea5e9; }
+	.historial { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; max-height: 55vh; overflow-y: auto; }
 	.fila { display: flex; align-items: flex-start; gap: 0.4rem; }
 	.fila.propio { flex-direction: row-reverse; }
 	.burbuja { max-width: 80%; padding: 0.5rem 0.8rem; border-radius: 12px; background: #1e293b; }
 	.fila.propio .burbuja { background: #0c4a6e; }
 	.burbuja p { margin: 0.2rem 0 0; }
 	.meta { color: #94a3b8; font-size: 0.75rem; }
+	.insignia {
+		font-style: normal; font-size: 0.68rem; padding: 0.05rem 0.35rem;
+		border-radius: 6px; margin-left: 0.25rem; text-transform: uppercase;
+	}
+	.insignia.profesor { background: #0c4a6e; color: #7dd3fc; }
+	.insignia.vocero { background: #3b0764; color: #d8b4fe; }
+	.insignia.mantenedor { background: #7f1d1d; color: #fecaca; }
 	.borrar { background: none; border: 0; color: #64748b; cursor: pointer; font-size: 0.8rem; padding: 0.2rem; }
 	.borrar:hover { color: #f87171; }
 	.entrada { display: flex; gap: 0.5rem; position: sticky; bottom: 4rem; }

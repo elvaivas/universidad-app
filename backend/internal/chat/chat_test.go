@@ -61,25 +61,25 @@ func insertarUsuario(t *testing.T, ctx context.Context, pool *pgxpool.Pool, emai
 func TestGuardarYListarCronologico(t *testing.T) {
 	e := setup(t)
 
-	m1, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, "  Hola a todos  ")
+	m1, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, "  Hola a todos  ", CanalGeneral)
 	if err != nil {
 		t.Fatalf("Guardar: %v", err)
 	}
 	if m1.Cuerpo != "Hola a todos" {
 		t.Errorf("trim no aplicado: %q", m1.Cuerpo)
 	}
-	if _, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, ""); !errors.Is(err, ErrCuerpoInvalido) {
+	if _, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, "", CanalGeneral); !errors.Is(err, ErrCuerpoInvalido) {
 		t.Errorf("cuerpo vacío aceptado: %v", err)
 	}
-	if _, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, strings.Repeat("x", 2001)); !errors.Is(err, ErrCuerpoInvalido) {
+	if _, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, strings.Repeat("x", 2001), CanalGeneral); !errors.Is(err, ErrCuerpoInvalido) {
 		t.Errorf("cuerpo gigante aceptado: %v", err)
 	}
 
-	if _, err := e.s.Guardar(e.ctx, e.seccionID, e.profesorID, "Bienvenidos"); err != nil {
+	if _, err := e.s.Guardar(e.ctx, e.seccionID, e.profesorID, "Bienvenidos", CanalGeneral); err != nil {
 		t.Fatal(err)
 	}
 
-	datos, total, err := e.s.Listar(e.ctx, e.seccionID, 50, 0)
+	datos, total, err := e.s.Listar(e.ctx, e.seccionID, CanalGeneral, 50, 0)
 	if err != nil || total != 2 {
 		t.Fatalf("Listar: %v %v", total, err)
 	}
@@ -109,7 +109,7 @@ func TestMembresiaChat(t *testing.T) {
 
 func TestModeracionBorrado(t *testing.T) {
 	e := setup(t)
-	m, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, "mensaje del estudiante")
+	m, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, "mensaje del estudiante", CanalGeneral)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestModeracionBorrado(t *testing.T) {
 	if _, err := e.s.Borrar(e.ctx, e.estID, m.ID); err != nil {
 		t.Fatalf("autor borra lo suyo: %v", err)
 	}
-	m, _ = e.s.Guardar(e.ctx, e.seccionID, e.estID, "otro mensaje")
+	m, _ = e.s.Guardar(e.ctx, e.seccionID, e.estID, "otro mensaje", CanalGeneral)
 
 	// un extraño NO puede
 	if _, err := e.s.Borrar(e.ctx, e.afueraID, m.ID); !errors.Is(err, ErrSinPermiso) {
@@ -131,5 +131,37 @@ func TestModeracionBorrado(t *testing.T) {
 	// doble borrado → no encontrado (existencia primero)
 	if _, err := e.s.Borrar(e.ctx, e.profesorID, m.ID); !errors.Is(err, ErrNoEncontrado) {
 		t.Errorf("doble borrado: %v", err)
+	}
+}
+
+func TestCanalesAnunciosSeparadosYPermisos(t *testing.T) {
+	e := setup(t)
+	// vocero de clase de la sección
+	voceroID := insertarUsuario(t, e.ctx, e.s.Pool, "vocero@uni.test", "estudiante")
+	_, _ = e.s.Pool.Exec(e.ctx,
+		`INSERT INTO vocerias (user_id, nivel, alcance_id) VALUES ($1::uuid,'clase',$2::uuid)`, voceroID, e.seccionID)
+
+	// estudiante común NO publica en anuncios
+	if _, err := e.s.Guardar(e.ctx, e.seccionID, e.estID, "spam", CanalAnuncios); !errors.Is(err, ErrSinPermiso) {
+		t.Errorf("estudiante publicó anuncio: %v", err)
+	}
+	// profesor y vocero sí
+	for _, id := range []string{e.profesorID, voceroID} {
+		if _, err := e.s.Guardar(e.ctx, e.seccionID, id, "aviso importante", CanalAnuncios); err != nil {
+			t.Errorf("no pudo publicar anuncio: %v", err)
+		}
+	}
+	// general queda aparte: el anuncio NO aparece en general
+	gen, genTotal, _ := e.s.Listar(e.ctx, e.seccionID, CanalGeneral, 50, 0)
+	if genTotal != 0 || len(gen) != 0 {
+		t.Errorf("general contaminado por anuncios: %d", genTotal)
+	}
+	anun, anunTotal, _ := e.s.Listar(e.ctx, e.seccionID, CanalAnuncios, 50, 0)
+	if anunTotal != 2 {
+		t.Errorf("anuncios: %d", anunTotal)
+	}
+	// insignias visibles
+	if anun[0].AutorRol != "profesor" || anun[1].AutorRol != "vocero" {
+		t.Errorf("insignias: %q %q", anun[0].AutorRol, anun[1].AutorRol)
 	}
 }

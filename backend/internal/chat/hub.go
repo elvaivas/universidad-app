@@ -89,8 +89,9 @@ func (h *Hub) Difundir(seccionID string, ev Evento) {
 }
 
 // Atender registra la conexión y bombea eventos hasta que el cliente se va.
-// onMensaje se invoca por cada mensaje entrante válido (ya con anti-spam).
-func (h *Hub) Atender(ctx context.Context, seccionID string, conn *websocket.Conn, onMensaje func(cuerpo string) error) {
+// onMensaje se invoca por cada mensaje entrante válido (ya con anti-spam),
+// con el canal elegido por el cliente ("general" por defecto).
+func (h *Hub) Atender(ctx context.Context, seccionID string, conn *websocket.Conn, onMensaje func(cuerpo, canal string) error) {
 	c := &cliente{conn: conn, enviar: make(chan Evento, 16)}
 	h.unir(seccionID, c)
 	defer h.salir(seccionID, c)
@@ -119,6 +120,7 @@ func (h *Hub) Atender(ctx context.Context, seccionID string, conn *websocket.Con
 		var entrada struct {
 			Tipo   string `json:"tipo"`
 			Cuerpo string `json:"cuerpo"`
+			Canal  string `json:"canal"`
 		}
 		if json.Unmarshal(data, &entrada) != nil || entrada.Tipo != "mensaje" {
 			continue
@@ -128,7 +130,11 @@ func (h *Hub) Atender(ctx context.Context, seccionID string, conn *websocket.Con
 			_ = conn.Write(ctx, websocket.MessageText, b)
 			continue
 		}
-		if err := onMensaje(entrada.Cuerpo); err != nil {
+		canal := entrada.Canal
+		if canal == "" {
+			canal = CanalGeneral
+		}
+		if err := onMensaje(entrada.Cuerpo, canal); err != nil {
 			slog.Debug("chat: mensaje rechazado", "error", err)
 		}
 	}
