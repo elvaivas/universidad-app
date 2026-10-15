@@ -16,6 +16,7 @@ import (
 	"github.com/elvaivas/universidad-app/backend/internal/catalog"
 	"github.com/elvaivas/universidad-app/backend/internal/config"
 	"github.com/elvaivas/universidad-app/backend/internal/database"
+	"github.com/elvaivas/universidad-app/backend/internal/feed"
 	"github.com/elvaivas/universidad-app/backend/internal/httpapi"
 	"github.com/elvaivas/universidad-app/backend/internal/migrations"
 )
@@ -66,6 +67,7 @@ func main() {
 	httpSrv.MontarCatalogo(&catalog.Servicio{Pool: pool})
 	httpSrv.Montar2FA(svc)
 	httpSrv.MontarAcademico(&academic.Servicio{Pool: pool})
+	httpSrv.MontarFeed(&feed.Servicio{Pool: pool})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
