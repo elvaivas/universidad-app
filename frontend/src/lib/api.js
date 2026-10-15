@@ -200,3 +200,53 @@ export async function desactivar2FA(codigo) {
 	const { data } = await api('/api/auth/2fa/desactivar', { method: 'POST', body: { codigo } });
 	return data;
 }
+
+// --- chat en tiempo real (Bloque 11b) ---
+
+export async function mensajes(seccionID, { limit = 50, offset = 0 } = {}) {
+	const { data } = await api(
+		`/api/secciones/${seccionID}/mensajes?limit=${limit}&offset=${offset}`
+	);
+	return data;
+}
+
+export async function borrarMensaje(mensajeID) {
+	const { data } = await api(`/api/mensajes/${mensajeID}`, { method: 'DELETE' });
+	return data;
+}
+
+// conectarChat abre el WebSocket autenticado (?token=). El navegador no puede
+// enviar headers en el upgrade WS, así que el access token viaja en la URL:
+// dura solo 15 min y la membresía se re-verifica al conectar.
+export function conectarChat(seccionID, { onMensaje, onBorrado, onError, onEstado } = {}) {
+	const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+	const ws = new WebSocket(`${proto}://${location.host}/ws/secciones/${seccionID}?token=${encodeURIComponent(accessToken ?? '')}`);
+
+	ws.onopen = () => onEstado?.('en-vivo');
+	ws.onclose = () => onEstado?.('caido');
+	ws.onerror = () => onEstado?.('caido');
+	ws.onmessage = (e) => {
+		let ev;
+		try {
+			ev = JSON.parse(e.data);
+		} catch {
+			return;
+		}
+		if (ev.tipo === 'mensaje') onMensaje?.(ev.data);
+		else if (ev.tipo === 'borrado') onBorrado?.(ev.data);
+		else if (ev.tipo === 'error') onError?.(ev.data?.error || 'error de chat');
+	};
+
+	return {
+		enviar(cuerpo) {
+			if (ws.readyState === WebSocket.OPEN) {
+				ws.send(JSON.stringify({ tipo: 'mensaje', cuerpo }));
+				return true;
+			}
+			return false;
+		},
+		cerrar() {
+			ws.close();
+		}
+	};
+}

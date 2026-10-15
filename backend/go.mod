@@ -3,6 +3,7 @@ module github.com/elvaivas/universidad-app/backend
 go 1.23
 
 require (
+	github.com/coder/websocket v1.8.12
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/golang-migrate/migrate/v4 v4.18.1

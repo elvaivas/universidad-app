@@ -1,20 +1,20 @@
 <script>
 	import { page } from '$app/stores';
-	import { sesion } from '$lib/auth.js';
 	import { goto } from '$app/navigation';
+	import { sesion } from '$lib/auth.js';
 	import {
 		avisos, publicarAviso, crearVotacion, votar, resultados,
 		comentarios, comentar
 	} from '$lib/api.js';
 
 	const sid = $page.params.sid;
-	$: if ($sesion.estado === 'anonimo') goto('/login');
-	
+
 	let lista = [];
 	let cargando = true;
 	let error = '';
 	let intentado = false;
 
+	$: if ($sesion.estado === 'anonimo') goto('/login');
 	$: if ($sesion.estado === 'activa' && !intentado) {
 		intentado = true;
 		cargar();
@@ -117,6 +117,7 @@
 {:else}
 	<div class="barra">
 		<h1>Novedades</h1>
+		<a class="chatlink" href={`/secciones/${sid}/chato`}>Chat →</a>
 		<button on:click={() => (mostrarCompositor = !mostrarCompositor)}>
 			{mostrarCompositor ? 'Cancelar' : '+ Publicar'}
 		</button>
@@ -210,6 +211,7 @@
 
 <style>
 	.barra { display: flex; justify-content: space-between; align-items: center; }
+	.chatlink { color: #7dd3fc; text-decoration: none; margin-right: 0.8rem; }
 	.compositor { background: #1e293b; padding: 1rem; border-radius: 10px; margin-bottom: 1rem; }
 	label { display: block; margin: 0.6rem 0; }
 	input, textarea, select {
