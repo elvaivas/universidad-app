@@ -319,3 +319,51 @@ func (s *Servicio) ActualizarPeriodo(ctx context.Context, id string, pe *Periodo
 	pe.ID = id
 	return nil
 }
+
+// --- anuncios generales de la universidad (solo mantenedor publica) ---
+
+type AnuncioGeneral struct {
+	ID        string `json:"id"`
+	AutorID   string `json:"autor_id"`
+	Titulo    string `json:"titulo"`
+	Cuerpo    string `json:"cuerpo"`
+	CreatedAt string `json:"created_at"`
+}
+
+func (s *Servicio) CrearAnuncioGeneral(ctx context.Context, autorID, titulo, cuerpo string) (*AnuncioGeneral, error) {
+	if strings.TrimSpace(titulo) == "" {
+		return nil, ErrDatosInvalidos
+	}
+	var a AnuncioGeneral
+	err := s.Pool.QueryRow(ctx,
+		`INSERT INTO anuncios_generales (autor_id, titulo, cuerpo)
+		 VALUES ($1::uuid, $2, $3)
+		 RETURNING id::text, autor_id::text, titulo, cuerpo, created_at::text`,
+		autorID, titulo, cuerpo).Scan(&a.ID, &a.AutorID, &a.Titulo, &a.Cuerpo, &a.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (s *Servicio) ListarAnunciosGenerales(ctx context.Context, limit int) ([]AnuncioGeneral, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := s.Pool.Query(ctx,
+		`SELECT id::text, autor_id::text, titulo, cuerpo, created_at::text
+		 FROM anuncios_generales ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AnuncioGeneral{}
+	for rows.Next() {
+		var a AnuncioGeneral
+		if err := rows.Scan(&a.ID, &a.AutorID, &a.Titulo, &a.Cuerpo, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

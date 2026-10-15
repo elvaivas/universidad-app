@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/elvaivas/universidad-app/backend/internal/notifs"
 )
 
 var (
@@ -417,4 +418,52 @@ func (s *Servicio) SeccionDeAviso(ctx context.Context, avisoID string) (string, 
 		return "", ErrNoEncontrado
 	}
 	return sid, nil
+}
+
+// MarcarImportante activa/desactiva el flag importante del aviso. Al activarlo,
+// notifica a los miembros de la sección (aparece en su inicio).
+func (s *Servicio) MarcarImportante(ctx context.Context, avisoID, actorID string, valor bool) error {
+	var seccionID, titulo string
+	if err := s.Pool.QueryRow(ctx,
+		`UPDATE avisos SET importante = $2 WHERE id = $1::uuid RETURNING seccion_id::text, titulo`,
+		avisoID, valor).Scan(&seccionID, &titulo); err != nil {
+		return ErrNoEncontrado
+	}
+	if valor {
+		var nombre string
+		_ = s.Pool.QueryRow(ctx, `SELECT nombre FROM users WHERE id = $1::uuid`, actorID).Scan(&nombre)
+		_ = notifs.CrearParaMiembrosSeccion(ctx, s.Pool, seccionID, actorID,
+			notifs.TipoAvisoImportante, avisoID, "Importante: "+titulo)
+	}
+	return nil
+}
+
+// ListarImportantesDe devuelve los avisos importantes de las secciones del
+// usuario (para el inicio).
+func (s *Servicio) ListarImportantesDe(ctx context.Context, userID string, limit int) ([]Aviso, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := s.Pool.Query(ctx,
+		`SELECT DISTINCT a.id::text, a.seccion_id::text, a.autor_id::text, a.tipo, a.titulo, a.cuerpo, a.created_at::text
+		 FROM avisos a
+		 WHERE a.importante AND (
+		    EXISTS (SELECT 1 FROM inscripciones i WHERE i.seccion_id = a.seccion_id
+		            AND i.estudiante_id = $1::uuid AND i.estado = 'activa')
+		    OR EXISTS (SELECT 1 FROM secciones sec WHERE sec.id = a.seccion_id AND sec.profesor_id = $1::uuid)
+		 )
+		 ORDER BY a.created_at DESC LIMIT $2`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Aviso{}
+	for rows.Next() {
+		var a Aviso
+		if err := rows.Scan(&a.ID, &a.SeccionID, &a.AutorID, &a.Tipo, &a.Titulo, &a.Cuerpo, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }

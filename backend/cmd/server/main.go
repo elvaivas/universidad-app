@@ -74,10 +74,11 @@ func main() {
 	hubChat := chat.NuevoHub()
 	httpSrv.MontarChat(&chat.Servicio{Pool: pool}, hubChat)
 	httpSrv.MontarDM(&dm.Servicio{Pool: pool}, hubChat)
+	httpSrv.MontarAtencion(&catalog.Servicio{Pool: pool}, &feed.Servicio{Pool: pool}, pool)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler:           httpSrv.Handler(), // S2: 0.5 req/s sostenido, ráfaga 5
+		Handler:           httpSrv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -92,7 +93,6 @@ func main() {
 		}
 	}()
 
-	// apagado elegante: SIGINT/SIGTERM
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
