@@ -17,6 +17,7 @@ import (
 	"github.com/elvaivas/universidad-app/backend/internal/chat"
 	"github.com/elvaivas/universidad-app/backend/internal/config"
 	"github.com/elvaivas/universidad-app/backend/internal/database"
+	"github.com/elvaivas/universidad-app/backend/internal/dm"
 	"github.com/elvaivas/universidad-app/backend/internal/feed"
 	"github.com/elvaivas/universidad-app/backend/internal/httpapi"
 	"github.com/elvaivas/universidad-app/backend/internal/migrations"
@@ -70,7 +71,9 @@ func main() {
 	httpSrv.Montar2FA(svc)
 	httpSrv.MontarAcademico(&academic.Servicio{Pool: pool})
 	httpSrv.MontarFeed(&feed.Servicio{Pool: pool})
-	httpSrv.MontarChat(&chat.Servicio{Pool: pool}, chat.NuevoHub())
+	hubChat := chat.NuevoHub()
+	httpSrv.MontarChat(&chat.Servicio{Pool: pool}, hubChat)
+	httpSrv.MontarDM(&dm.Servicio{Pool: pool}, hubChat)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

@@ -30,6 +30,7 @@
 	{#if $sesion.estado === 'activa'}
 		<nav class="inferior">
 			<a href="/" class:active={ruta === '/'}>Inicio</a>
+			<a href="/mensajes" class:active={ruta.startsWith('/mensajes')}>Mensajes</a>
 			<a href="/perfil" class:active={ruta === '/perfil'}>Perfil</a>
 		</nav>
 	{/if}

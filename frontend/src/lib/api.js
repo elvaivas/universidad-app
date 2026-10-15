@@ -250,3 +250,77 @@ export function conectarChat(seccionID, { onMensaje, onBorrado, onError, onEstad
 		}
 	};
 }
+
+// --- mensajes directos (Bloque 11d) ---
+
+export async function crearSolicitudDM(destinatario, mensaje) {
+	const { data } = await api('/api/dm/solicitudes', {
+		method: 'POST',
+		body: { destinatario, mensaje }
+	});
+	return data;
+}
+
+export async function solicitudesRecibidas() {
+	const { data } = await api('/api/dm/solicitudes');
+	return data;
+}
+
+export async function aceptarSolicitud(id) {
+	const { data } = await api(`/api/dm/solicitudes/${id}/aceptar`, { method: 'POST', body: {} });
+	return data;
+}
+
+export async function rechazarSolicitud(id) {
+	const { data } = await api(`/api/dm/solicitudes/${id}/rechazar`, { method: 'POST', body: {} });
+	return data;
+}
+
+export async function conversaciones() {
+	const { data } = await api('/api/dm/conversaciones');
+	return data;
+}
+
+export async function mensajesDM(conversacionID, { limit = 50, offset = 0 } = {}) {
+	const { data } = await api(`/api/dm/conversaciones/${conversacionID}/mensajes?limit=${limit}&offset=${offset}`);
+	return data;
+}
+
+export async function borrarMensajeDM(id) {
+	const { data } = await api(`/api/dm/mensajes/${id}`, { method: 'DELETE' });
+	return data;
+}
+
+// conectarDM: mismo patrón que conectarChat pero sobre /ws/dm/{cid}.
+export function conectarDM(conversacionID, handlers) {
+	const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+	const ws = new WebSocket(
+		`${proto}://${location.host}/ws/dm/${conversacionID}?token=${encodeURIComponent(accessToken ?? '')}`
+	);
+	ws.onopen = () => handlers.onEstado?.('en-vivo');
+	ws.onclose = () => handlers.onEstado?.('caido');
+	ws.onerror = () => handlers.onEstado?.('caido');
+	ws.onmessage = (e) => {
+		let ev;
+		try {
+			ev = JSON.parse(e.data);
+		} catch {
+			return;
+		}
+		if (ev.tipo === 'mensaje') handlers.onMensaje?.(ev.data);
+		else if (ev.tipo === 'borrado') handlers.onBorrado?.(ev.data);
+		else if (ev.tipo === 'error') handlers.onError?.(ev.data?.error || 'error de chat');
+	};
+	return {
+		enviar(cuerpo) {
+			if (ws.readyState === WebSocket.OPEN) {
+				ws.send(JSON.stringify({ tipo: 'mensaje', cuerpo }));
+				return true;
+			}
+			return false;
+		},
+		cerrar() {
+			ws.close();
+		}
+	};
+}
