@@ -32,7 +32,7 @@ func servidorPrueba(t *testing.T) (*httptest.Server, *auth.Servicio) {
 		`INSERT INTO users (email, password_hash, nombre, rol_base) VALUES ('luis@uni.test', $1, 'Luis', 'estudiante')`, hash); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NuevoServer(svc, 50, 5).Handler())
+	srv := httptest.NewServer(NuevoServer(svc, svc.JWTSecreto, 50, 5).Handler())
 	t.Cleanup(srv.Close)
 	return srv, svc
 }
@@ -40,6 +40,25 @@ func servidorPrueba(t *testing.T) (*httptest.Server, *auth.Servicio) {
 func postJSON(t *testing.T, url string, cuerpo string) (int, map[string]any) {
 	t.Helper()
 	resp, err := http.Post(url, "application/json", bytes.NewBufferString(cuerpo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
+func getConToken(t *testing.T, url, token string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +137,7 @@ func TestLoginErroresJSONUniformes(t *testing.T) {
 
 func TestRateLimitDevuelve429(t *testing.T) {
 	// limiter muy estricto: ráfaga 2, sin recarga apreciable; no toca DB
-	srv := httptest.NewServer(NuevoServer(servicioFalso{}, 0.001, 2).Handler())
+	srv := httptest.NewServer(NuevoServer(servicioFalso{}, "x", 0.001, 2).Handler())
 	defer srv.Close()
 	var ultimo int
 	for i := 0; i < 5; i++ {
@@ -130,6 +149,52 @@ func TestRateLimitDevuelve429(t *testing.T) {
 	}
 	if ultimo != http.StatusTooManyRequests {
 		t.Errorf("esperaba 429 tras agotar ráfaga, obtuvo %d", ultimo)
+	}
+}
+
+func TestMeDevuelveClaimsDelToken(t *testing.T) {
+	srv, _ := servidorPrueba(t)
+	_, login := postJSON(t, srv.URL+"/api/auth/login",
+		`{"email":"luis@uni.test","password":"clav3-Valida!"}`)
+	tok := login["data"].(map[string]any)["access_token"].(string)
+
+	code, out := getConToken(t, srv.URL+"/api/auth/me", tok)
+	if code != http.StatusOK {
+		t.Fatalf("/me: %d %v", code, out)
+	}
+	me := out["data"].(map[string]any)
+	if me["rol_base"] != "estudiante" {
+		t.Errorf("claims inesperadas: %v", me)
+	}
+
+	code, _ = getConToken(t, srv.URL+"/api/auth/me", "")
+	if code != http.StatusUnauthorized {
+		t.Errorf("/me sin token: esperaba 401, obtuvo %d", code)
+	}
+}
+
+func TestAdminPingSoloMantenedor(t *testing.T) {
+	srv, svc := servidorPrueba(t)
+	// estudiante logueado → 403 en ruta admin
+	_, login := postJSON(t, srv.URL+"/api/auth/login",
+		`{"email":"luis@uni.test","password":"clav3-Valida!"}`)
+	tokEst := login["data"].(map[string]any)["access_token"].(string)
+	code, _ := getConToken(t, srv.URL+"/api/admin/ping", tokEst)
+	if code != http.StatusForbidden {
+		t.Errorf("estudiante en /admin/ping: esperaba 403, obtuvo %d", code)
+	}
+
+	// mantenedor creado en la misma base → 200
+	if _, err := svc.CrearMantenedorInicial(context.Background(), "boss@uni.test", "Boss#2026Clave", "Boss"); err != nil {
+		t.Fatal(err)
+	}
+	par, err := svc.Login(context.Background(), "boss@uni.test", "Boss#2026Clave", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out := getConToken(t, srv.URL+"/api/admin/ping", par.AccessToken)
+	if code != http.StatusOK {
+		t.Errorf("mantenedor en /admin/ping: esperaba 200, obtuvo %d (%v)", code, out)
 	}
 }
 
