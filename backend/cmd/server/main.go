@@ -2,17 +2,31 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"github.com/elvaivas/universidad-app/backend/internal/auth"
 	"github.com/elvaivas/universidad-app/backend/internal/config"
 	"github.com/elvaivas/universidad-app/backend/internal/database"
+	"github.com/elvaivas/universidad-app/backend/internal/httpapi"
 	"github.com/elvaivas/universidad-app/backend/internal/migrations"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "seed-admin" {
+		if err := ejecutarSeedAdmin(); err != nil {
+			fmt.Fprintln(os.Stderr, "seed-admin:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
@@ -40,5 +54,72 @@ func main() {
 	}
 	logger.Info("migraciones al día", "version", version)
 
-	// Bloque 3 levanta el HTTP server (chi) y el módulo auth aquí.
+	svc := &auth.Servicio{
+		Pool:       pool,
+		JWTSecreto: cfg.JWTSecret,
+		AccessTTL:  cfg.AccessTokenTTL,
+		RefreshTTL: cfg.RefreshTokenTTL,
+	}
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
+		Handler: httpapi.NuevoServer(svc, 0.5, 5).Handler(), // S2: 0.5 req/s sostenido, ráfaga 5
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	go func() {
+		logger.Info("http escuchando", "puerto", cfg.HTTPPort)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("http falló", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// apagado elegante: SIGINT/SIGTERM
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	logger.Info("apagando...")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	_ = srv.Shutdown(shutdownCtx)
+}
+
+// ejecutarSeedAdmin crea el primer mantenedor:
+//   go run ./backend/cmd/server seed-admin --email admin@uni.edu --password '...'
+func ejecutarSeedAdmin() error {
+	fs := flag.NewFlagSet("seed-admin", flag.ExitOnError)
+	email := fs.String("email", "", "email del mantenedor (obligatorio)")
+	password := fs.String("password", "", "contraseña inicial (obligatoria; se exige cambio al primer login)")
+	nombre := fs.String("nombre", "Mantenedor Inicial", "nombre visible")
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		return err
+	}
+	if *email == "" || *password == "" {
+		return fmt.Errorf("--email y --password son obligatorios")
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	pool, err := database.New(context.Background(), cfg.DBURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	if _, err := migrations.Up(cfg.DBURL); err != nil {
+		return fmt.Errorf("migraciones: %w", err)
+	}
+
+	svc := &auth.Servicio{Pool: pool, JWTSecreto: cfg.JWTSecret,
+		AccessTTL: cfg.AccessTokenTTL, RefreshTTL: cfg.RefreshTokenTTL}
+	if _, err := svc.CrearMantenedorInicial(context.Background(), *email, *password, *nombre); err != nil {
+		return err
+	}
+	fmt.Printf("mantenedor creado: %s (force_password_change=true)\n", *email)
+	return nil
 }
