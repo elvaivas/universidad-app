@@ -178,3 +178,25 @@ export async function comentar(avisoID, cuerpo) {
 	});
 	return data;
 }
+
+// --- 2FA y perfil (Bloque 11a) ---
+
+export async function seguridad() {
+	const { data } = await api('/api/auth/seguridad');
+	return data;
+}
+
+export async function activar2FA() {
+	const { data } = await api('/api/auth/2fa/activar', { method: 'POST', body: {} });
+	return data; // { secreto, otpauth_url, qr_png_base64 }
+}
+
+export async function confirmar2FA(codigo) {
+	const { data } = await api('/api/auth/2fa/confirmar', { method: 'POST', body: { codigo } });
+	return data;
+}
+
+export async function desactivar2FA(codigo) {
+	const { data } = await api('/api/auth/2fa/desactivar', { method: 'POST', body: { codigo } });
+	return data;
+}

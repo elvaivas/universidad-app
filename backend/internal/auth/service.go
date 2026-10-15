@@ -427,3 +427,29 @@ func (s *Servicio) marcarJTIUsado(jti string) {
 	}
 	s.usadosJTI[jti] = time.Now()
 }
+
+// --- estado de seguridad (perfil) ---
+
+// EstadoSeguridad expone lo que la pantalla de perfil necesita saber.
+type EstadoSeguridad struct {
+	Email        string `json:"email"`
+	Nombre       string `json:"nombre"`
+	RolBase      string `json:"rol_base"`
+	EsMantenedor bool   `json:"es_mantenedor"`
+	TOTPActivado bool   `json:"totp_activado"`
+}
+
+// Seguridad devuelve el estado de seguridad del usuario autenticado.
+func (s *Servicio) Seguridad(ctx context.Context, userID string) (*EstadoSeguridad, error) {
+	u, err := buscarUsuarioPorID(ctx, s.Pool, userID)
+	if err != nil {
+		return nil, ErrCredenciales
+	}
+	return &EstadoSeguridad{
+		Email:        u.Email,
+		Nombre:       u.Nombre,
+		RolBase:      u.RolBase,
+		EsMantenedor: u.EsMantenedor,
+		TOTPActivado: u.TOTPActivado,
+	}, nil
+}

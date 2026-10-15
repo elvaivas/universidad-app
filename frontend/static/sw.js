@@ -1,4 +1,4 @@
-// Service worker: app shell en caché; NAVEGACIÓN network-first (la app es
+// Service worker: estáticos en caché; NAVEGACIÓN network-first (la app es
 // dinámica y autenticada: servir HTML viejo del caché rompe la experiencia);
 // el cache de navegación solo responde cuando no hay red (modo offline).
 const CACHE = 'uniapp-shell-v2';
@@ -19,17 +19,15 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
 	const url = new URL(e.request.url);
-	if (url.origin !== location.origin) return;            // solo mismo origen
-	if (e.request.method !== 'GET') return;                // escrituras: siempre red
-	if (url.pathname.startsWith('/api/')) return;          // API: siempre red
+	if (url.origin !== location.origin) return;
+	if (e.request.method !== 'GET') return;
+	if (url.pathname.startsWith('/api/')) return;
 
 	if (e.request.mode === 'navigate') {
-		// páginas: red primero; si falla (offline), intenta el cache
 		e.respondWith(
 			fetch(e.request).catch(() => caches.match(e.request).then((hit) => hit || caches.match('/')))
 		);
 		return;
 	}
-	// estáticos (icono, manifest): cache-first
 	e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request)));
 });

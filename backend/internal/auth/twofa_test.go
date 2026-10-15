@@ -143,3 +143,36 @@ func idDe(t *testing.T, s *Servicio, email string) string {
 	}
 	return u.ID
 }
+
+func TestSeguridadDevuelveEstado(t *testing.T) {
+	s := setupServicio(t)
+	crearUsuarioPrueba(t, s, "ana@uni.test", "clav3-Valida!")
+	ctx := context.Background()
+	uid := idDe(t, s, "ana@uni.test")
+
+	sec, err := s.Seguridad(ctx, uid)
+	if err != nil {
+		t.Fatalf("Seguridad: %v", err)
+	}
+	if sec.Email != "ana@uni.test" || sec.TOTPActivado || sec.EsMantenedor {
+		t.Errorf("estado inicial: %+v", sec)
+	}
+
+	secAct, err := s.Activar2FA(ctx, uid)
+	if err != nil {
+		t.Fatalf("Activar2FA: %v", err)
+	}
+	sec, _ = s.Seguridad(ctx, uid)
+	if sec.TOTPActivado {
+		t.Error("con 2FA pendiente no debe marcar activado")
+	}
+
+	codigo, _ := Codigo2FAParaTests(secAct.Secreto)
+	if err := s.Confirmar2FA(ctx, uid, codigo); err != nil {
+		t.Fatal(err)
+	}
+	sec, _ = s.Seguridad(ctx, uid)
+	if !sec.TOTPActivado {
+		t.Error("tras confirmar debe marcar activado")
+	}
+}

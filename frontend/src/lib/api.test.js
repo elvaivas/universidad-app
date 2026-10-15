@@ -169,3 +169,29 @@ describe('recarga de página (me tras perder memoria)', () => {
 		expect(yo.rol_base).toBe('profesor');
 	});
 });
+
+describe('2FA y perfil (bloque 11a)', () => {
+	it('activar2FA devuelve secreto y QR', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+			jsonResp(200, { data: { secreto: 'SEC', otpauth_url: 'otpauth://x', qr_png_base64: 'AAA' } })
+		));
+		const r = await (await import('./api.js')).activar2FA();
+		expect(r.secreto).toBe('SEC');
+		expect(r.qr_png_base64.length).toBeGreaterThan(0);
+	});
+
+	it('confirmar2FA envía el código', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResp(200, { data: { activado: true } })));
+		await (await import('./api.js')).confirmar2FA('123456');
+		const [, opts] = vi.mocked(fetch).mock.calls[0];
+		expect(JSON.parse(opts.body)).toEqual({ codigo: '123456' });
+	});
+
+	it('seguridad trae el estado', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+			jsonResp(200, { data: { email: 'a@b.c', totp_activado: true } })
+		));
+		const r = await (await import('./api.js')).seguridad();
+		expect(r.totp_activado).toBe(true);
+	});
+});

@@ -1,4 +1,5 @@
-// Rutas de segundo factor (TOTP), cambio de contraseña y cierre de sesión.
+// Rutas de segundo factor (TOTP), cambio de contraseña, cierre de sesión
+// y estado de seguridad del perfil.
 // Montar2FA se llama desde main.go después de NuevoServer: conserva el
 // server_test.go intacto (toma *auth.Servicio concreto, no la interfaz).
 package httpapi
@@ -24,6 +25,7 @@ func (s *Server) Montar2FA(svc *auth.Servicio) {
 
 	s.router.Group(func(r chi.Router) {
 		r.Use(rbac.RequireAuth(s.jwtSecreto))
+		r.Get("/api/auth/seguridad", seguridad(svc))
 		r.Post("/api/auth/2fa/activar", activar2FA(svc))
 		r.Post("/api/auth/2fa/confirmar", confirmar2FA(svc))
 		r.Post("/api/auth/2fa/desactivar", desactivar2FA(svc))
@@ -36,6 +38,18 @@ func uidDe(r *http.Request) string {
 		return c.Subject
 	}
 	return ""
+}
+
+// seguridad devuelve el estado de seguridad del usuario (perfil / 2FA).
+func seguridad(svc *auth.Servicio) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		est, err := svc.Seguridad(r.Context(), uidDe(r))
+		if err != nil {
+			escribirError(w, http.StatusUnauthorized, "sesión no válida")
+			return
+		}
+		escribirJSON(w, http.StatusOK, map[string]any{"data": est})
+	}
 }
 
 type codigoReq struct {

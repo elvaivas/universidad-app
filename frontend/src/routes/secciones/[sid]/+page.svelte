@@ -1,13 +1,15 @@
 <script>
 	import { page } from '$app/stores';
 	import { sesion } from '$lib/auth.js';
+	import { goto } from '$app/navigation';
 	import {
 		avisos, publicarAviso, crearVotacion, votar, resultados,
 		comentarios, comentar
 	} from '$lib/api.js';
 
 	const sid = $page.params.sid;
-
+	$: if ($sesion.estado === 'anonimo') goto('/login');
+	
 	let lista = [];
 	let cargando = true;
 	let error = '';
