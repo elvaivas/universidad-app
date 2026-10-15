@@ -1,10 +1,12 @@
 <script>
 	import { onMount } from 'svelte';
+	import { iniciarSesion, sesion, salir } from '$lib/auth.js';
 
 	onMount(() => {
 		if ('serviceWorker' in navigator) {
 			navigator.serviceWorker.register('/sw.js');
 		}
+		iniciarSesion();
 	});
 </script>
 
@@ -17,7 +19,11 @@
 		<strong>Universidad App</strong>
 		<nav>
 			<a href="/">Inicio</a>
-			<a href="/login">Entrar</a>
+			{#if $sesion.estado === 'activa'}
+				<button class="link" on:click={salir}>Salir ({$sesion.usuario?.rol_base})</button>
+			{:else}
+				<a href="/login">Entrar</a>
+			{/if}
 		</nav>
 	</header>
 	<main><slot /></main>
@@ -36,6 +42,6 @@
 		padding: 0.8rem 1rem; border-bottom: 1px solid #1e293b;
 		position: sticky; top: 0; background: #0f172a;
 	}
-	header a { color: #7dd3fc; margin-left: 1rem; text-decoration: none; }
+	header a, .link { color: #7dd3fc; margin-left: 1rem; text-decoration: none; background: none; border: 0; font: inherit; cursor: pointer; padding: 0; }
 	main { flex: 1; padding: 1rem; }
 </style>

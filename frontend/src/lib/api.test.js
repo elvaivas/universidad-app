@@ -1,0 +1,127 @@
+// Tests del cliente API con fetch simulado (vitest, node environment).
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+	api,
+	login,
+	login2fa,
+	logout,
+	configurarCliente,
+	limpiarTokens,
+	fijarTokens
+} from './api.js';
+
+function jsonResp(status, cuerpo) {
+	return new Response(JSON.stringify(cuerpo), {
+		status,
+		headers: { 'Content-Type': 'application/json' }
+	});
+}
+
+const PAR = {
+	data: {
+		access_token: 'ACC',
+		refresh_token: 'REF',
+		token_type: 'Bearer',
+		expires_in: 900,
+		requiere_2fa: false,
+		force_password_change: false
+	}
+};
+
+beforeEach(() => {
+	limpiarTokens();
+	vi.restoreAllMocks();
+	configurarCliente({ onUnauthorized: () => {} });
+});
+
+describe('login', () => {
+	it('ok: fija tokens y reporta sin 2FA', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResp(200, PAR)));
+		const r = await login('a@b.c', 'clave');
+		expect(r).toEqual({ requiere2fa: false, forcePasswordChange: false });
+	});
+
+	it('con 2FA: devuelve pre-token sin fijar tokens', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				jsonResp(200, { data: { requiere_2fa: true, pre_2fa_token: 'PRE', expires_in: 120 } })
+			)
+		);
+		const r = await login('a@b.c', 'clave');
+		expect(r.requiere2fa).toBe(true);
+		expect(r.pre2faToken).toBe('PRE');
+	});
+
+	it('credenciales malas: lanza error con status 401', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(jsonResp(401, { error: 'credenciales inválidas' }))
+		);
+		await expect(login('a@b.c', 'mala')).rejects.toMatchObject({ status: 401 });
+	});
+
+	it('login2fa: fija tokens y reporta force_password_change', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				jsonResp(200, {
+					data: { ...PAR.data, force_password_change: true, requiere_2fa: false }
+				})
+			)
+		);
+		const r = await login2fa('PRE', '123456');
+		expect(r.forcePasswordChange).toBe(true);
+	});
+});
+
+describe('refresh en cadena única', () => {
+	it('3 llamadas con 401 concurrentes ejecutan UN solo refresh y reintentan una vez', async () => {
+		let refreshes = 0;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockImplementation((url) => {
+				if (url === '/api/auth/refresh') {
+					refreshes++;
+					return Promise.resolve(jsonResp(200, PAR));
+				}
+				return Promise.resolve(jsonResp(401, { error: 'token inválido' }));
+			})
+		);
+		fijarTokens({ access_token: 'VIEJO' });
+
+		const resultados = await Promise.allSettled([
+			api('/api/x'), api('/api/y'), api('/api/z')
+		]);
+		expect(refreshes).toBe(1); // cadena única
+		expect(resultados.every((r) => r.status === 'rejected')).toBe(true); // reintento falló → sin bucle
+	});
+
+	it('si el refresh falla, cadena única y aviso por llamada', async () => {
+		const spy = vi.fn();
+		configurarCliente({ onUnauthorized: spy });
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockImplementation((url) =>
+				url === '/api/auth/refresh'
+					? Promise.resolve(jsonResp(401, { error: 'refresh inválido' }))
+					: Promise.resolve(jsonResp(401, { error: 'token inválido' }))
+			)
+		);
+		fijarTokens({ access_token: 'VIEJO' });
+
+		await Promise.allSettled([api('/api/x'), api('/api/y')]);
+		const refreshes = vi.mocked(fetch).mock.calls.filter((c) => c[0] === '/api/auth/refresh');
+		expect(refreshes.length).toBe(1);
+		expect(spy).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('logout', () => {
+	it('llama al endpoint y limpia tokens aunque falle', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResp(200, { data: { logout: true } })));
+		fijarTokens({ access_token: 'ACC', refresh_token: 'REF' });
+		await logout();
+		expect(fetch).toHaveBeenCalledWith('/api/auth/logout', expect.objectContaining({ method: 'POST' }));
+	});
+});
