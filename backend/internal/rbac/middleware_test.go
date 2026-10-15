@@ -13,7 +13,7 @@ const secreto = "0123456789abcdef0123456789abcdef"
 
 func tokenDe(t *testing.T, c auth.Claims) string {
 	t.Helper()
-	tok, err := auth.EmitirToken(c, secreto, 15*time.Minute)
+	tok, err := auth.EmitirToken("user-123", c, secreto, 15*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,8 +33,8 @@ func handlerEspia(w http.ResponseWriter, r *http.Request) {
 
 func TestRequireAuthTabla(t *testing.T) {
 	valido := tokenDe(t, auth.Claims{RolBase: "estudiante", Voceria: "clase"})
-	expirado, _ := auth.EmitirToken(auth.Claims{RolBase: "estudiante"}, secreto, -time.Minute)
-	otroSecreto, _ := auth.EmitirToken(auth.Claims{RolBase: "x"}, "otro-secreto-0123456789abcdef0123", time.Minute)
+	expirado, _ := auth.EmitirToken("user-123", auth.Claims{RolBase: "estudiante"}, secreto, -time.Minute)
+	otroSecreto, _ := auth.EmitirToken("user-123", auth.Claims{RolBase: "x"}, "otro-secreto-0123456789abcdef0123", time.Minute)
 
 	casos := []struct {
 		nombre string

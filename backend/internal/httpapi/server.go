@@ -97,12 +97,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, auth.ErrUsuarioInactivo):
 		escribirError(w, http.StatusForbidden, "usuario inactivo")
 		return
-	case errors.Is(err, auth.ErrRequiere2FA):
+	case errors.Is(err, auth.ErrRequiere2FA): // legado: hoy el pre-token viaja en el par
 		escribirJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"requiere_2fa": true}})
 		return
 	case err != nil:
 		slog.Error("login interno", "error", err)
 		escribirError(w, http.StatusInternalServerError, "error interno")
+		return
+	}
+	if par.Requiere2FA {
+		escribirJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
+			"requiere_2fa": true, "pre_2fa_token": par.AccessToken, "expires_in": par.ExpiresIn,
+		}})
 		return
 	}
 	responderPar(w, par)

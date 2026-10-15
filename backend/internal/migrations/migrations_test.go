@@ -17,24 +17,23 @@ func TestUpDownCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
-	if v != 2 {
-		t.Errorf("versión tras Up: esperaba 2 (última migración), obtuvo %d", v)
+	if v != 3 {
+		t.Errorf("versión tras Up: esperaba 3 (última migración), obtuvo %d", v)
 	}
 
-	// revertible: down deja la base en versión 1 (una atrás) y up vuelve a 2
 	v, err = Down(dbURL)
 	if err != nil {
 		t.Fatalf("Down: %v", err)
 	}
-	if v != 1 {
-		t.Errorf("versión tras Down: esperaba 1, obtuvo %d", v)
+	if v != 2 {
+		t.Errorf("versión tras Down: esperaba 2, obtuvo %d", v)
 	}
 
 	v, err = Up(dbURL)
 	if err != nil {
 		t.Fatalf("Up (segunda pasada): %v", err)
 	}
-	if v != 2 {
-		t.Errorf("versión tras segundo Up: esperaba 2, obtuvo %d", v)
+	if v != 3 {
+		t.Errorf("versión tras segundo Up: esperaba 3, obtuvo %d", v)
 	}
 }

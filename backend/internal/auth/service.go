@@ -1,7 +1,7 @@
-// Servicio de autenticación: login con Argon2id, emisión de par de tokens
-// (JWT 15 min + refresh rotativo persistido como SHA-256), seed del primer
-// mantenedor y auditoría de eventos sensibles. Testeable contra PostgreSQL
-// real (internal/testdb crea una base efímera por test).
+// Servicio de autenticación: login con Argon2id (con segundo factor TOTP),
+// emisión de par de tokens (JWT 15 min + refresh rotativo persistido como
+// SHA-256), seed del primer mantenedor, cambio de contraseña y auditoría
+// de eventos sensibles. Testeable contra PostgreSQL real (internal/testdb).
 package auth
 
 import (
@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,10 +21,14 @@ import (
 )
 
 var (
-	ErrCredenciales    = errors.New("credenciales inválidas") // genérico: no filtra usuarios existentes
-	ErrUsuarioInactivo = errors.New("usuario inactivo")
-	ErrRequiere2FA     = errors.New("requiere segundo factor")
-	ErrRefreshInvalido = errors.New("refresh token inválido o revocado")
+	ErrCredenciales      = errors.New("credenciales inválidas") // genérico: no filtra usuarios existentes
+	ErrUsuarioInactivo   = errors.New("usuario inactivo")
+	ErrRequiere2FA       = errors.New("requiere segundo factor")
+	ErrRefreshInvalido   = errors.New("refresh token inválido o revocado")
+	Err2FASinSecreto     = errors.New("2FA no iniciado: activa y confirma primero")
+	ErrCodigo2FAInvalido = errors.New("código 2FA inválido")
+	ErrPreTokenInvalido  = errors.New("pre-token 2FA inválido o usado")
+	ErrPasswordDebil     = errors.New("la nueva contraseña debe tener al menos 10 caracteres")
 )
 
 type Usuario struct {
@@ -34,6 +39,7 @@ type Usuario struct {
 	EsMantenedor   bool
 	PasswordHash   string
 	TOTPSecret     *string
+	TOTPActivado   bool
 	Activo         bool
 	ForcePwdChange bool
 }
@@ -53,10 +59,10 @@ func buscarUsuarioPorEmail(ctx context.Context, pool *pgxpool.Pool, email string
 	var u Usuario
 	err := pool.QueryRow(ctx,
 		`SELECT id::text, lower(email), nombre, rol_base, es_mantenedor,
-		        password_hash, totp_secret, activo, force_password_change
+		        password_hash, totp_secret, totp_activado, activo, force_password_change
 		 FROM users WHERE lower(email) = lower($1)`, email).Scan(
 		&u.ID, &u.Email, &u.Nombre, &u.RolBase, &u.EsMantenedor,
-		&u.PasswordHash, &u.TOTPSecret, &u.Activo, &u.ForcePwdChange)
+		&u.PasswordHash, &u.TOTPSecret, &u.TOTPActivado, &u.Activo, &u.ForcePwdChange)
 	if err != nil {
 		return nil, err // pgx.ErrNoRows lo traduce el caller a genérico
 	}
@@ -67,10 +73,10 @@ func buscarUsuarioPorID(ctx context.Context, pool *pgxpool.Pool, id string) (*Us
 	var u Usuario
 	err := pool.QueryRow(ctx,
 		`SELECT id::text, lower(email), nombre, rol_base, es_mantenedor,
-		        password_hash, totp_secret, activo, force_password_change
+		        password_hash, totp_secret, totp_activado, activo, force_password_change
 		 FROM users WHERE id = $1::uuid`, id).Scan(
 		&u.ID, &u.Email, &u.Nombre, &u.RolBase, &u.EsMantenedor,
-		&u.PasswordHash, &u.TOTPSecret, &u.Activo, &u.ForcePwdChange)
+		&u.PasswordHash, &u.TOTPSecret, &u.TOTPActivado, &u.Activo, &u.ForcePwdChange)
 	if err != nil {
 		return nil, err
 	}
@@ -117,10 +123,14 @@ type Servicio struct {
 	JWTSecreto string
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
+
+	muJTI     sync.Mutex
+	usadosJTI map[string]time.Time
 }
 
-// Login verifica credenciales y emite el par de tokens. Si el usuario tiene
-// 2FA activado devuelve ErrRequiere2FA (endpoint /2fa/verify: módulo 2FA).
+// Login verifica credenciales. Si el usuario tiene 2FA activado, devuelve un
+// par con Requiere2FA=true y AccessToken = pre-token firmado (2 min, un solo
+// uso) que se canjea en Login2FA. Si no, emite el par de tokens directo.
 func (s *Servicio) Login(ctx context.Context, email, password, ip, ua string) (*ParTokens, error) {
 	u, err := buscarUsuarioPorEmail(ctx, s.Pool, email)
 	if err != nil {
@@ -139,8 +149,14 @@ func (s *Servicio) Login(ctx context.Context, email, password, ip, ua string) (*
 	if !u.Activo {
 		return nil, ErrUsuarioInactivo
 	}
-	if u.TOTPSecret != nil && *u.TOTPSecret != "" {
-		return nil, ErrRequiere2FA
+	if u.TOTPActivado && u.TOTPSecret != nil && *u.TOTPSecret != "" {
+		pre, err := EmitirToken(u.ID, Claims{RolBase: u.RolBase, Pre2FA: true},
+			s.JWTSecreto, 2*time.Minute)
+		if err != nil {
+			return nil, fmt.Errorf("firmar pre-token 2FA: %w", err)
+		}
+		return &ParTokens{Requiere2FA: true, AccessToken: pre,
+			TokenType: "Pre2FA", ExpiresIn: 120}, nil
 	}
 	audit.Registrar(ctx, s.Pool, u.ID, "auth.login", "user", u.ID,
 		nil, map[string]any{"email": u.Email}, ip)
@@ -182,7 +198,7 @@ func (s *Servicio) Refresh(ctx context.Context, refreshToken, ip, ua string) (*P
 func (s *Servicio) emitirPar(ctx context.Context, u *Usuario, ip, ua string) (*ParTokens, error) {
 	voceria, _ := voceriaMayorNivel(ctx, s.Pool, u.ID)
 
-	access, err := EmitirToken(Claims{
+	access, err := EmitirToken(u.ID, Claims{
 		RolBase: u.RolBase, Voceria: voceria, EsMantenedor: u.EsMantenedor,
 	}, s.JWTSecreto, s.AccessTTL)
 	if err != nil {
@@ -230,4 +246,151 @@ func (s *Servicio) CrearMantenedorInicial(ctx context.Context, email, password, 
 		nil, map[string]any{"email": email}, "")
 	return &Usuario{ID: id, Email: email, Nombre: nombre, RolBase: "profesor",
 		EsMantenedor: true, ForcePwdChange: true}, nil
+}
+
+// --- 2FA TOTP ---
+
+// Activar2FA genera un secreto y lo guarda PENDIENTE (no exige código aún).
+// El usuario lo confirma escaneando el QR e ingresando el primer código.
+func (s *Servicio) Activar2FA(ctx context.Context, userID string) (*Secreto2FA, error) {
+	u, err := buscarUsuarioPorID(ctx, s.Pool, userID)
+	if err != nil {
+		return nil, ErrCredenciales
+	}
+	sec, err := GenerarSecreto2FA(u.Email)
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.Pool.Exec(ctx,
+		`UPDATE users SET totp_secret = $2, totp_activado = false WHERE id = $1::uuid`,
+		userID, sec.Secreto)
+	if err != nil {
+		return nil, fmt.Errorf("guardar secreto 2FA: %w", err)
+	}
+	audit.Registrar(ctx, s.Pool, userID, "auth.2fa_activar", "user", userID,
+		nil, map[string]any{"estado": "pendiente"}, "")
+	return sec, nil
+}
+
+// Confirmar2FA valida el primer código y activa el segundo factor.
+func (s *Servicio) Confirmar2FA(ctx context.Context, userID, codigo string) error {
+	u, err := buscarUsuarioPorID(ctx, s.Pool, userID)
+	if err != nil || u.TOTPSecret == nil || *u.TOTPSecret == "" {
+		return Err2FASinSecreto
+	}
+	if !ValidarCodigo2FA(*u.TOTPSecret, codigo) {
+		return ErrCodigo2FAInvalido
+	}
+	_, err = s.Pool.Exec(ctx,
+		`UPDATE users SET totp_activado = true WHERE id = $1::uuid`, userID)
+	if err != nil {
+		return fmt.Errorf("activar 2FA: %w", err)
+	}
+	audit.Registrar(ctx, s.Pool, userID, "auth.2fa_confirmar", "user", userID,
+		nil, map[string]any{"estado": "activo"}, "")
+	return nil
+}
+
+// Desactivar2FA exige un código válido para apagar el segundo factor.
+func (s *Servicio) Desactivar2FA(ctx context.Context, userID, codigo string) error {
+	u, err := buscarUsuarioPorID(ctx, s.Pool, userID)
+	if err != nil || u.TOTPSecret == nil {
+		return Err2FASinSecreto
+	}
+	if !ValidarCodigo2FA(*u.TOTPSecret, codigo) {
+		return ErrCodigo2FAInvalido
+	}
+	_, err = s.Pool.Exec(ctx,
+		`UPDATE users SET totp_secret = NULL, totp_activado = false WHERE id = $1::uuid`, userID)
+	if err != nil {
+		return fmt.Errorf("desactivar 2FA: %w", err)
+	}
+	audit.Registrar(ctx, s.Pool, userID, "auth.2fa_desactivar", "user", userID, nil, nil, "")
+	return nil
+}
+
+// Login2FA completa el login del segundo paso: valida el pre-token (un solo
+// uso, 2 min) y el código TOTP, y emite el par de tokens real.
+func (s *Servicio) Login2FA(ctx context.Context, preToken, codigo, ip, ua string) (*ParTokens, error) {
+	c, err := ValidarToken(preToken, s.JWTSecreto)
+	if err != nil || !c.Pre2FA {
+		return nil, ErrPreTokenInvalido
+	}
+	if s.jtiUsado(c.ID) {
+		return nil, ErrPreTokenInvalido // reuso: posible robo
+	}
+
+	u, err := buscarUsuarioPorID(ctx, s.Pool, c.Subject)
+	if err != nil || u.TOTPSecret == nil || !u.TOTPActivado {
+		return nil, ErrPreTokenInvalido
+	}
+	if !ValidarCodigo2FA(*u.TOTPSecret, codigo) {
+		return nil, ErrCodigo2FAInvalido
+	}
+	s.marcarJTIUsado(c.ID)
+
+	audit.Registrar(ctx, s.Pool, u.ID, "auth.login_2fa", "user", u.ID,
+		nil, map[string]any{"email": u.Email}, ip)
+	return s.emitirPar(ctx, u, ip, ua)
+}
+
+// --- cambio de contraseña ---
+
+// CambiarPassword exige la clave actual, valida la nueva, marca
+// force_password_change=false y REVOCA todas las sesiones (refresh tokens):
+// un cambio de contraseña debe cerrar todo lo abierto.
+func (s *Servicio) CambiarPassword(ctx context.Context, userID, actual, nueva, ip string) error {
+	u, err := buscarUsuarioPorID(ctx, s.Pool, userID)
+	if err != nil {
+		return ErrCredenciales
+	}
+	ok, err := VerificarPassword(u.PasswordHash, actual)
+	if err != nil || !ok {
+		return ErrCredenciales
+	}
+	if len(nueva) < 10 {
+		return ErrPasswordDebil
+	}
+	hash, err := HashPassword(nueva)
+	if err != nil {
+		return err
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx,
+		`UPDATE users SET password_hash = $2, force_password_change = false WHERE id = $1::uuid`,
+		userID, hash); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1::uuid AND revoked_at IS NULL`,
+		userID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	audit.Registrar(ctx, s.Pool, userID, "auth.cambio_password", "user", userID, nil, nil, ip)
+	return nil
+}
+
+// --- pre-tokens de un solo uso (memoria; 1 réplica según plano) ---
+
+func (s *Servicio) jtiUsado(jti string) bool {
+	s.muJTI.Lock()
+	defer s.muJTI.Unlock()
+	_, usado := s.usadosJTI[jti]
+	return usado
+}
+
+func (s *Servicio) marcarJTIUsado(jti string) {
+	s.muJTI.Lock()
+	defer s.muJTI.Unlock()
+	if s.usadosJTI == nil {
+		s.usadosJTI = map[string]time.Time{}
+	}
+	s.usadosJTI[jti] = time.Now()
 }

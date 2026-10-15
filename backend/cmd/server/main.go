@@ -63,6 +63,7 @@ func main() {
 	}
 	httpSrv := httpapi.NuevoServer(svc, cfg.JWTSecret, 0.5, 5)
 	httpSrv.MontarCatalogo(&catalog.Servicio{Pool: pool})
+	httpSrv.Montar2FA(svc)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
