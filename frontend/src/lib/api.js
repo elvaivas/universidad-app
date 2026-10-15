@@ -118,3 +118,57 @@ export async function logout() {
 		limpiarTokens();
 	}
 }
+
+// --- feed y secciones (Bloque 10) ---
+
+export async function misSecciones() {
+	const { data } = await api('/api/me/secciones');
+	return data;
+}
+
+export async function avisos(seccionID, { limit = 20, offset = 0 } = {}) {
+	const { data } = await api(`/api/secciones/${seccionID}/avisos?limit=${limit}&offset=${offset}`);
+	return data;
+}
+
+export async function publicarAviso(seccionID, titulo, cuerpo) {
+	const { data } = await api(`/api/secciones/${seccionID}/avisos`, {
+		method: 'POST',
+		body: { titulo, cuerpo }
+	});
+	return data;
+}
+
+export async function crearVotacion(seccionID, { titulo, pregunta, opciones, multiple = false }) {
+	const { data } = await api(`/api/secciones/${seccionID}/votaciones`, {
+		method: 'POST',
+		body: { titulo, pregunta, opciones, multiple }
+	});
+	return data;
+}
+
+export async function votar(votacionID, opciones) {
+	const { data } = await api(`/api/votaciones/${votacionID}/votar`, {
+		method: 'POST',
+		body: { opciones }
+	});
+	return data;
+}
+
+export async function resultados(votacionID) {
+	const { data } = await api(`/api/votaciones/${votacionID}/resultados`);
+	return data;
+}
+
+export async function comentarios(avisoID) {
+	const { data } = await api(`/api/avisos/${avisoID}/comentarios?limit=50`);
+	return data;
+}
+
+export async function comentar(avisoID, cuerpo) {
+	const { data } = await api(`/api/avisos/${avisoID}/comentarios`, {
+		method: 'POST',
+		body: { cuerpo }
+	});
+	return data;
+}

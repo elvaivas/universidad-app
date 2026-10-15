@@ -332,3 +332,45 @@ func (s *Servicio) SeccionesDeUsuario(ctx context.Context, userID string) ([]str
 	}
 	return ids, rows.Err()
 }
+
+// --- resumen para la UI ---
+
+// SeccionResumen es lo que la app muestra en "mis secciones".
+type SeccionResumen struct {
+	ID            string `json:"id"`
+	Codigo        string `json:"codigo"`
+	MateriaNombre string `json:"materia_nombre"`
+	PeriodoNombre string `json:"periodo_nombre"`
+	EsProfesor    bool   `json:"es_profesor"`
+}
+
+// ListarSeccionesDeUsuario resume las secciones donde la persona es profesor
+// o está inscrita activa: alimenta la home de la PWA.
+func (s *Servicio) ListarSeccionesDeUsuario(ctx context.Context, userID string) ([]SeccionResumen, error) {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT sec.id::text, sec.codigo, m.nombre, p.nombre, true
+		 FROM secciones sec JOIN materias m ON m.id = sec.materia_id
+		 JOIN periodos p ON p.id = sec.periodo_id
+		 WHERE sec.profesor_id = $1::uuid AND sec.activo
+		 UNION
+		 SELECT sec.id::text, sec.codigo, m.nombre, p.nombre, false
+		 FROM inscripciones i
+		 JOIN secciones sec ON sec.id = i.seccion_id
+		 JOIN materias m ON m.id = sec.materia_id
+		 JOIN periodos p ON p.id = sec.periodo_id
+		 WHERE i.estudiante_id = $1::uuid AND i.estado = 'activa' AND sec.activo
+		 ORDER BY 3, 2`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SeccionResumen{}
+	for rows.Next() {
+		var r SeccionResumen
+		if err := rows.Scan(&r.ID, &r.Codigo, &r.MateriaNombre, &r.PeriodoNombre, &r.EsProfesor); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

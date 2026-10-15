@@ -21,6 +21,7 @@ func (s *Server) MontarAcademico(acad *academic.Servicio) {
 	// lectura: autenticado
 	s.router.Group(func(r chi.Router) {
 		r.Use(rbac.RequireAuth(s.jwtSecreto))
+		r.Get("/api/me/secciones", listarMisSecciones(acad))
 		r.Get("/api/carreras/{cid}/materias", listarMaterias(acad))
 		r.Get("/api/materias/{mid}/secciones", listarSecciones(acad))
 		r.Get("/api/secciones/{sid}/inscritos", listarInscritos(acad))
@@ -50,6 +51,18 @@ func responderErrorAcademic(w http.ResponseWriter, err error) {
 		escribirError(w, http.StatusConflict, err.Error())
 	default:
 		escribirError(w, http.StatusInternalServerError, "error interno")
+	}
+}
+
+// listarMisSecciones devuelve el resumen de secciones del usuario autenticado.
+func listarMisSecciones(acad *academic.Servicio) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		secciones, err := acad.ListarSeccionesDeUsuario(r.Context(), uidDe(r))
+		if err != nil {
+			escribirError(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		escribirJSON(w, http.StatusOK, map[string]any{"data": secciones})
 	}
 }
 

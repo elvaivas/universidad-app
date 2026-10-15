@@ -33,6 +33,17 @@ type Aviso struct {
 	Titulo    string `json:"titulo"`
 	Cuerpo    string `json:"cuerpo"`
 	CreatedAt string `json:"created_at"`
+	// Votacion está presente solo cuando tipo = "votacion".
+	Votacion *VotacionResumen `json:"votacion,omitempty"`
+}
+
+// VotacionResumen se embebe en el aviso para que la UI lo pinte sin llamadas extra.
+type VotacionResumen struct {
+	ID       string   `json:"id"`
+	Pregunta string   `json:"pregunta"`
+	Opciones []string `json:"opciones"`
+	Multiple bool     `json:"multiple"`
+	Cerrada  bool     `json:"cerrada"`
 }
 
 type Votacion struct {
@@ -155,6 +166,7 @@ func (s *Servicio) PublicarAviso(ctx context.Context, seccionID, autorID, titulo
 	return &a, nil
 }
 
+// ListarAvisos trae aviso + votación embebida (LEFT JOIN: un solo query).
 func (s *Servicio) ListarAvisos(ctx context.Context, seccionID string, limit, offset int) (*Pagina, error) {
 	limit, offset = normalizarPaginacion(limit, offset)
 	p := &Pagina{Limit: limit, Offset: offset}
@@ -162,17 +174,30 @@ func (s *Servicio) ListarAvisos(ctx context.Context, seccionID string, limit, of
 		return nil, err
 	}
 	rows, err := s.Pool.Query(ctx,
-		`SELECT id::text, seccion_id::text, autor_id::text, tipo, titulo, cuerpo, created_at::text
-		 FROM avisos WHERE seccion_id=$1::uuid
-		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, seccionID, limit, offset)
+		`SELECT a.id::text, a.seccion_id::text, a.autor_id::text, a.tipo, a.titulo, a.cuerpo, a.created_at::text,
+		        v.id::text, v.pregunta, v.opciones::text, v.multiple, v.cerrada
+		 FROM avisos a
+		 LEFT JOIN votaciones v ON v.aviso_id = a.id
+		 WHERE a.seccion_id=$1::uuid
+		 ORDER BY a.created_at DESC LIMIT $2 OFFSET $3`, seccionID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var a Aviso
-		if err := rows.Scan(&a.ID, &a.SeccionID, &a.AutorID, &a.Tipo, &a.Titulo, &a.Cuerpo, &a.CreatedAt); err != nil {
+		var vID, vPregunta, vOpciones *string
+		var vMultiple, vCerrada *bool
+		if err := rows.Scan(&a.ID, &a.SeccionID, &a.AutorID, &a.Tipo, &a.Titulo, &a.Cuerpo, &a.CreatedAt,
+			&vID, &vPregunta, &vOpciones, &vMultiple, &vCerrada); err != nil {
 			return nil, err
+		}
+		if vID != nil {
+			v := &VotacionResumen{ID: *vID, Pregunta: *vPregunta, Multiple: *vMultiple, Cerrada: *vCerrada}
+			if vOpciones != nil {
+				_ = json.Unmarshal([]byte(*vOpciones), &v.Opciones)
+			}
+			a.Votacion = v
 		}
 		p.Datos = append(p.Datos, a)
 	}

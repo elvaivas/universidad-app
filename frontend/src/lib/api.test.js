@@ -125,3 +125,19 @@ describe('logout', () => {
 		expect(fetch).toHaveBeenCalledWith('/api/auth/logout', expect.objectContaining({ method: 'POST' }));
 	});
 });
+
+describe('feed (bloque 10)', () => {
+	it('avisos construye la URL con paginación', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResp(200, { data: { datos: [], total: 0, limit: 5, offset: 10 } })));
+		const p = await (await import('./api.js')).avisos('SID', { limit: 5, offset: 10 });
+		expect(fetch).toHaveBeenCalledWith('/api/secciones/SID/avisos?limit=5&offset=10', expect.anything());
+		expect(p.limit).toBe(5);
+	});
+
+	it('votar envía las opciones elegidas', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResp(200, { data: { votado: true } })));
+		await (await import('./api.js')).votar('VID', [0, 2]);
+		const [, opts] = vi.mocked(fetch).mock.calls[0];
+		expect(JSON.parse(opts.body)).toEqual({ opciones: [0, 2] });
+	});
+});

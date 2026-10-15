@@ -191,3 +191,32 @@ func TestSeccionDuplicadaYMateriaInexistente(t *testing.T) {
 		t.Errorf("materia huérfana aceptada: %v", err)
 	}
 }
+
+func TestListarSeccionesDeUsuarioResumen(t *testing.T) {
+	e := setup(t)
+	m := e.materia(t)
+	sec := &Seccion{MateriaID: m.ID, PeriodoID: e.periodoID, ProfesorID: e.profesorID, Codigo: "3", Cupo: 5}
+	if err := e.s.CrearSeccion(e.ctx, sec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.Inscribir(e.ctx, sec.ID, e.estudianteID); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := e.s.ListarSeccionesDeUsuario(e.ctx, e.profesorID)
+	if err != nil || len(res) != 1 || !res[0].EsProfesor {
+		t.Fatalf("profesor: %v %v", res, err)
+	}
+	if res[0].MateriaNombre != "Programación I" || res[0].PeriodoNombre != "2026-1" {
+		t.Errorf("resumen: %+v", res[0])
+	}
+
+	res, err = e.s.ListarSeccionesDeUsuario(e.ctx, e.estudianteID)
+	if err != nil || len(res) != 1 || res[0].EsProfesor {
+		t.Errorf("estudiante: %v %v", res, err)
+	}
+	res, _ = e.s.ListarSeccionesDeUsuario(e.ctx, e.otroEstID)
+	if len(res) != 0 {
+		t.Errorf("afuera debería tener 0: %v", res)
+	}
+}

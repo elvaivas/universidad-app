@@ -192,3 +192,29 @@ func TestVotacionMultipleYValidaciones(t *testing.T) {
 		t.Errorf("múltiple: votos=%d participacion=%d", res.TotalVotos, res.Participacion)
 	}
 }
+
+func TestListarAvisosConVotacionEmbebida(t *testing.T) {
+	e := setup(t)
+	if _, err := e.s.PublicarAviso(e.ctx, e.seccionID, e.profesorID, "Aviso simple", "sin votación"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.CrearVotacion(e.ctx, e.seccionID, e.profesorID, "Votación", "¿Pregunta?", []string{"Sí", "No"}, false); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := e.s.ListarAvisos(e.ctx, e.seccionID, 10, 0)
+	if err != nil || p.Total != 2 {
+		t.Fatalf("listar: %v %v", p.Total, err)
+	}
+	vot := p.Datos[0].(Aviso)
+	if vot.Tipo != "votacion" || vot.Votacion == nil {
+		t.Fatalf("votación no embebida: %+v", vot)
+	}
+	if len(vot.Votacion.Opciones) != 2 || vot.Votacion.Cerrada {
+		t.Errorf("votación resumen: %+v", vot.Votacion)
+	}
+	aviso := p.Datos[1].(Aviso)
+	if aviso.Votacion != nil {
+		t.Errorf("aviso simple no debe traer votación: %+v", aviso.Votacion)
+	}
+}
