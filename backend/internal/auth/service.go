@@ -1,6 +1,7 @@
 // Servicio de autenticación: login con Argon2id, emisión de par de tokens
-// (JWT 15 min + refresh rotativo persistido como SHA-256) y seed del primer
-// mantenedor. Toda la lógica es testeable contra PostgreSQL real (testdb).
+// (JWT 15 min + refresh rotativo persistido como SHA-256), seed del primer
+// mantenedor y auditoría de eventos sensibles. Testeable contra PostgreSQL
+// real (internal/testdb crea una base efímera por test).
 package auth
 
 import (
@@ -14,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/elvaivas/universidad-app/backend/internal/audit"
 )
 
 var (
@@ -36,12 +39,12 @@ type Usuario struct {
 }
 
 type ParTokens struct {
-	AccessToken      string `json:"access_token"`
-	RefreshToken     string `json:"refresh_token"`
-	TokenType        string `json:"token_type"`
-	ExpiresIn        int64  `json:"expires_in"` // segundos
-	Requiere2FA      bool   `json:"requiere_2fa"`
-	ForcePwdChange   bool   `json:"force_password_change"`
+	AccessToken    string `json:"access_token"`
+	RefreshToken   string `json:"refresh_token"`
+	TokenType      string `json:"token_type"`
+	ExpiresIn      int64  `json:"expires_in"` // segundos
+	Requiere2FA    bool   `json:"requiere_2fa"`
+	ForcePwdChange bool   `json:"force_password_change"`
 }
 
 // --- repositorio (consultas parametrizadas pgx; sin concatenación) ---
@@ -123,10 +126,14 @@ func (s *Servicio) Login(ctx context.Context, email, password, ip, ua string) (*
 	if err != nil {
 		// gastamos el mismo costo Argon2 para no filtrar por timing (S2)
 		_, _ = VerificarPassword("$argon2id$v=19$m=65536,t=3,p=4$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", password)
+		audit.Registrar(ctx, s.Pool, "", "auth.login_fallido", "user", "",
+			nil, map[string]any{"email": email}, ip)
 		return nil, ErrCredenciales
 	}
 	ok, err := VerificarPassword(u.PasswordHash, password)
 	if err != nil || !ok {
+		audit.Registrar(ctx, s.Pool, u.ID, "auth.login_fallido", "user", u.ID,
+			nil, map[string]any{"email": email}, ip)
 		return nil, ErrCredenciales
 	}
 	if !u.Activo {
@@ -135,6 +142,8 @@ func (s *Servicio) Login(ctx context.Context, email, password, ip, ua string) (*
 	if u.TOTPSecret != nil && *u.TOTPSecret != "" {
 		return nil, ErrRequiere2FA
 	}
+	audit.Registrar(ctx, s.Pool, u.ID, "auth.login", "user", u.ID,
+		nil, map[string]any{"email": u.Email}, ip)
 	return s.emitirPar(ctx, u, ip, ua)
 }
 
@@ -154,6 +163,7 @@ func (s *Servicio) Refresh(ctx context.Context, refreshToken, ip, ua string) (*P
 			// replay detectado: cadena comprometida, se revoca TODO lo del usuario
 			_, _ = s.Pool.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = now()
 				WHERE user_id = $1::uuid AND revoked_at IS NULL`, userID)
+			audit.Registrar(ctx, s.Pool, userID, "auth.refresh_replay", "user", userID, nil, nil, ip)
 		}
 		return nil, ErrRefreshInvalido
 	}
@@ -165,6 +175,7 @@ func (s *Servicio) Refresh(ctx context.Context, refreshToken, ip, ua string) (*P
 	if err := revocarRefresh(ctx, s.Pool, hash); err != nil {
 		return nil, fmt.Errorf("revocar refresh: %w", err)
 	}
+	audit.Registrar(ctx, s.Pool, u.ID, "auth.refresh", "user", u.ID, nil, nil, ip)
 	return s.emitirPar(ctx, u, ip, ua)
 }
 
@@ -215,6 +226,8 @@ func (s *Servicio) CrearMantenedorInicial(ctx context.Context, email, password, 
 	if err != nil {
 		return nil, fmt.Errorf("insertar mantenedor: %w", err)
 	}
+	audit.Registrar(ctx, s.Pool, id, "auth.seed_admin", "user", id,
+		nil, map[string]any{"email": email}, "")
 	return &Usuario{ID: id, Email: email, Nombre: nombre, RolBase: "profesor",
 		EsMantenedor: true, ForcePwdChange: true}, nil
 }

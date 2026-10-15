@@ -62,7 +62,7 @@ func main() {
 	}
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler: httpapi.NuevoServer(svc, 0.5, 5).Handler(), // S2: 0.5 req/s sostenido, ráfaga 5
+		Handler: httpapi.NuevoServer(svc, cfg.JWTSecret, 0.5, 5).Handler(), // S2: 0.5 req/s sostenido, ráfaga 5
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

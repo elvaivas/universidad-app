@@ -1,5 +1,6 @@
 // Capa HTTP del backend: router chi, handlers JSON uniformes {data|error},
 // rate limit en memoria por IP para /auth/* y middleware de recuperación.
+// Las rutas autenticadas usan rbac.RequireAuth; /api/admin/* exige mantenedor.
 package httpapi
 
 import (
@@ -17,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/elvaivas/universidad-app/backend/internal/auth"
+	"github.com/elvaivas/universidad-app/backend/internal/rbac"
 )
 
 // ServicioAuth es la superficie que el HTTP necesita del módulo auth
@@ -32,7 +34,7 @@ type Server struct {
 	lim    *limiter
 }
 
-func NuevoServer(svc ServicioAuth, limiteRPS float64, rafaga int) *Server {
+func NuevoServer(svc ServicioAuth, jwtSecreto string, limiteRPS float64, rafaga int) *Server {
 	s := &Server{svc: svc, lim: nuevoLimiter(limiteRPS, rafaga)}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -49,6 +51,18 @@ func NuevoServer(svc ServicioAuth, limiteRPS float64, rafaga int) *Server {
 		r.Post("/login", s.login)
 		r.Post("/refresh", s.refresh)
 	})
+
+	// rutas autenticadas: el JWT es el pasaporte (S3)
+	r.Group(func(r chi.Router) {
+		r.Use(rbac.RequireAuth(jwtSecreto))
+		r.Get("/api/auth/me", s.me)
+	})
+
+	// placeholder del módulo admin: solo mantenedores
+	r.With(rbac.RequireAuth(jwtSecreto), rbac.RequireMantenedor).
+		Get("/api/admin/ping", func(w http.ResponseWriter, _ *http.Request) {
+			escribirJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"pong": true}})
+		})
 	s.router = r
 	return s
 }
@@ -114,6 +128,11 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responderPar(w, par)
+}
+
+// me devuelve las claims del portador: útil para el frontend y para tests.
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	escribirJSON(w, http.StatusOK, map[string]any{"data": rbac.ClaimsDe(r)})
 }
 
 func responderPar(w http.ResponseWriter, par *auth.ParTokens) {
