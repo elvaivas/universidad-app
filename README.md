@@ -7,7 +7,7 @@ Documentación completa de setup y despliegue: ver `deploy/` y ADRs (pendientes,
 
     cp .env.example .env          # y editar JWT_SECRET
     docker compose up -d db       # PostgreSQL 16 local
-    cd backend && go run ./cmd/server
+    go run ./backend/cmd/server  (desde la raíz, gracias a go.work)
 
 ## Convenciones
 
