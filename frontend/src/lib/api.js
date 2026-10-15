@@ -58,9 +58,15 @@ export async function api(ruta, { method = 'GET', body, _reintentado = false } =
 		body: body !== undefined ? JSON.stringify(body) : undefined
 	});
 
-	if (resp.status === 401 && !ruta.startsWith('/api/auth/')) {
-		// un solo reintento por llamada: tras refrescar, si sigue 401 es
-		// token inválido de verdad — no hay bucle infinito de refresh.
+	// Solo las rutas de PRE-autenticación se saltan el refresh; /me SÍ debe
+	// dispararlo — es la llamada que recupera la sesión al recargar la página.
+	const sinRefresh = [
+		'/api/auth/login',
+		'/api/auth/refresh',
+		'/api/auth/2fa/login',
+		'/api/auth/logout'
+	];
+	if (resp.status === 401 && !sinRefresh.includes(ruta)) {
 		if (_reintentado) {
 			onSesionExpirada();
 			throw Object.assign(new Error('sesión expirada'), { status: 401 });
@@ -119,7 +125,7 @@ export async function logout() {
 	}
 }
 
-// --- feed y secciones (Bloque 10) ---
+// --- feed y secciones ---
 
 export async function misSecciones() {
 	const { data } = await api('/api/me/secciones');

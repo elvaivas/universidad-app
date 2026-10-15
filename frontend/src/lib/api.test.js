@@ -141,3 +141,31 @@ describe('feed (bloque 10)', () => {
 		expect(JSON.parse(opts.body)).toEqual({ opciones: [0, 2] });
 	});
 });
+
+describe('recarga de página (me tras perder memoria)', () => {
+	it('me() con 401 dispara refresh y reintenta (sesión sobrevive F5)', async () => {
+		let refreshes = 0;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockImplementation((url, opts) => {
+				if (url === '/api/auth/refresh') {
+					refreshes++;
+					return Promise.resolve(jsonResp(200, PAR));
+				}
+				if (url === '/api/auth/me') {
+					const aut = opts.headers['Authorization'];
+					return Promise.resolve(
+						aut === 'Bearer ACC'
+							? jsonResp(200, { data: { sub: 'user-123', rol_base: 'profesor' } })
+							: jsonResp(401, { error: 'token inválido' })
+					);
+				}
+				return Promise.resolve(jsonResp(404, {}));
+			})
+		);
+		limpiarTokens();
+		const yo = await (await import('./api.js')).me();
+		expect(refreshes).toBe(1);
+		expect(yo.rol_base).toBe('profesor');
+	});
+});

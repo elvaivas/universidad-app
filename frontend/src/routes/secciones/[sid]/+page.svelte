@@ -1,5 +1,4 @@
 <script>
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { sesion } from '$lib/auth.js';
 	import {
@@ -12,6 +11,12 @@
 	let lista = [];
 	let cargando = true;
 	let error = '';
+	let intentado = false;
+
+	$: if ($sesion.estado === 'activa' && !intentado) {
+		intentado = true;
+		cargar();
+	}
 
 	let mostrarCompositor = false;
 	let tipoNuevo = 'aviso';
@@ -30,15 +35,13 @@
 		error = '';
 		try {
 			const p = await avisos(sid);
-			lista = p.datos;
+			lista = Array.isArray(p?.datos) ? p.datos : [];
 		} catch (e) {
 			error = e.message;
 		} finally {
 			cargando = false;
 		}
 	}
-
-	onMount(cargar);
 
 	async function publicar() {
 		publicando = true;
@@ -55,6 +58,7 @@
 				});
 			}
 			titulo = cuerpo = pregunta = opcionesTexto = '';
+			multiple = false;
 			mostrarCompositor = false;
 			await cargar();
 		} catch (e) {
@@ -87,7 +91,7 @@
 		comentariosPorAviso = { ...comentariosPorAviso };
 		if (estado.abierto && estado.lista.length === 0) {
 			const p = await comentarios(aviso.id);
-			estado.lista = p.datos;
+			estado.lista = Array.isArray(p?.datos) ? p.datos : [];
 			comentariosPorAviso = { ...comentariosPorAviso };
 		}
 	}
@@ -97,7 +101,7 @@
 		await comentar(aviso.id, estado.texto.trim());
 		estado.texto = '';
 		const p = await comentarios(aviso.id);
-		estado.lista = p.datos;
+		estado.lista = Array.isArray(p?.datos) ? p.datos : [];
 		comentariosPorAviso = { ...comentariosPorAviso };
 	}
 </script>
@@ -107,10 +111,10 @@
 <a href="/">← Mis secciones</a>
 
 {#if $sesion.estado !== 'activa'}
-	<p>Debes <a href="/login">iniciar sesión</a> para ver esta sección.</p>
+	<p>Iniciar sesión para ver esta sección.</p>
 {:else}
 	<div class="barra">
-		<h1>Feed</h1>
+		<h1>Novedades</h1>
 		<button on:click={() => (mostrarCompositor = !mostrarCompositor)}>
 			{mostrarCompositor ? 'Cancelar' : '+ Publicar'}
 		</button>
@@ -134,41 +138,48 @@
 				</label>
 				<label class="fila"><input type="checkbox" bind:checked={multiple} /> Permite elegir varias</label>
 			{/if}
+			{#if error}<p class="error" role="alert">{error}</p>{/if}
 			<button on:click={publicar} disabled={publicando}>
 				{publicando ? 'Publicando…' : 'Publicar'}
 			</button>
 		</div>
 	{/if}
 
-	{#if cargando}
-		<p>Cargando…</p>
-	{:else if error}
+	{#if !mostrarCompositor && error}
 		<p class="error" role="alert">{error}</p>
 	{/if}
 
-	{#each lista as aviso}
+	{#if cargando}
+		<p>Cargando…</p>
+	{/if}
+
+	{#each lista || [] as aviso}
 		<article class="aviso">
 			<h2>{aviso.titulo}</h2>
-			{#if aviso.cuerpo}<p>{aviso.cuerpo}</p>{/if}
+			<!-- en votaciones el cuerpo del aviso DUPLICA la pregunta: solo se muestra en avisos -->
+			{#if aviso.tipo === 'aviso' && aviso.cuerpo}<p>{aviso.cuerpo}</p>{/if}
 
 			{#if aviso.votacion}
 				<div class="votacion">
 					<p class="pregunta">{aviso.votacion.pregunta}</p>
 					{#if resPorVotacion[aviso.votacion.id]}
 						{@const res = resPorVotacion[aviso.votacion.id]}
-						{#each res.conteo as c}
+						{#each res.conteo || [] as c}
 							<div class="barra-result">
 								<span>{c.opcion}</span>
 								<div class="barra"><div class="relleno" style={`width: ${res.total_votos ? (c.votos / res.total_votos) * 100 : 0}%`}></div></div>
 								<span>{c.votos}</span>
 							</div>
 						{/each}
-						<p class="meta">{res.total_votos} votos · {res.participacion} participantes</p>
+						<p class="meta">
+							{res.total_votos} {res.total_votos === 1 ? 'voto' : 'votos'}
+							· {res.participacion} {res.participacion === 1 ? 'participante' : 'participantes'}
+						</p>
 					{:else if aviso.votacion.cerrada}
 						<p class="meta">Votación cerrada.</p>
 						<button on:click={() => verResultados(aviso)}>Ver resultados</button>
 					{:else}
-						{#each aviso.votacion.opciones as op, i}
+						{#each aviso.votacion.opciones || [] as op, i}
 							<button class="opcion" on:click={() => votarEn(aviso, i)}>{op}</button>
 						{/each}
 						<button class="link" on:click={() => verResultados(aviso)}>Resultados</button>
@@ -182,7 +193,7 @@
 
 			{#if comentariosPorAviso[aviso.id]?.abierto}
 				<div class="comentarios">
-					{#each comentariosPorAviso[aviso.id].lista as c}
+					{#each comentariosPorAviso[aviso.id].lista || [] as c}
 						<p class="comentario">{c.cuerpo}</p>
 					{/each}
 					<form on:submit|preventDefault={() => enviarComentario(aviso)}>

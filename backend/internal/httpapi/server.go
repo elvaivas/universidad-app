@@ -151,13 +151,22 @@ type refreshReq struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// refresh lee la cookie httpOnly primero (superviviente de recargas y
+// reinicios del navegador) y el body como respaldo (clientes sin cookies).
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	var req refreshReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
-		escribirError(w, http.StatusBadRequest, "JSON inválido")
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req) // body opcional
+	refreshToken := req.RefreshToken
+	if refreshToken == "" {
+		if c, err := r.Cookie("refresh_token"); err == nil {
+			refreshToken = c.Value
+		}
+	}
+	if refreshToken == "" {
+		escribirError(w, http.StatusUnauthorized, "refresh inválido o expirado")
 		return
 	}
-	par, err := s.svc.Refresh(r.Context(), req.RefreshToken, ipDe(r), r.UserAgent())
+	par, err := s.svc.Refresh(r.Context(), refreshToken, ipDe(r), r.UserAgent())
 	if errors.Is(err, auth.ErrRefreshInvalido) {
 		escribirError(w, http.StatusUnauthorized, "refresh inválido o expirado")
 		return

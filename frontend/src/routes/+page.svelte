@@ -1,15 +1,22 @@
 <script>
-	import { onMount } from 'svelte';
 	import { sesion } from '$lib/auth.js';
 	import { misSecciones } from '$lib/api.js';
 
 	let secciones = [];
 	let cargando = false;
 	let error = '';
+	let intentado = false;
 
-	onMount(async () => {
-		if ($sesion.estado !== 'activa') return;
+	// reactivo: cuando la sesión pasa a activa (incluida la recuperación tras
+	// F5), carga las secciones — sin depender del momento del montaje.
+	$: if ($sesion.estado === 'activa' && !intentado) {
+		intentado = true;
+		cargar();
+	}
+
+	async function cargar() {
 		cargando = true;
+		error = '';
 		try {
 			secciones = await misSecciones();
 		} catch (e) {
@@ -17,7 +24,7 @@
 		} finally {
 			cargando = false;
 		}
-	});
+	}
 </script>
 
 <svelte:head><title>Inicio · Universidad App</title></svelte:head>
