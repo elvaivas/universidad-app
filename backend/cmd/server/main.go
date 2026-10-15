@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/elvaivas/universidad-app/backend/internal/auth"
+	"github.com/elvaivas/universidad-app/backend/internal/catalog"
 	"github.com/elvaivas/universidad-app/backend/internal/config"
 	"github.com/elvaivas/universidad-app/backend/internal/database"
 	"github.com/elvaivas/universidad-app/backend/internal/httpapi"
@@ -60,9 +61,12 @@ func main() {
 		AccessTTL:  cfg.AccessTokenTTL,
 		RefreshTTL: cfg.RefreshTokenTTL,
 	}
+	httpSrv := httpapi.NuevoServer(svc, cfg.JWTSecret, 0.5, 5)
+	httpSrv.MontarCatalogo(&catalog.Servicio{Pool: pool})
+
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler: httpapi.NuevoServer(svc, cfg.JWTSecret, 0.5, 5).Handler(), // S2: 0.5 req/s sostenido, ráfaga 5
+		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
+		Handler:           httpSrv.Handler(), // S2: 0.5 req/s sostenido, ráfaga 5
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

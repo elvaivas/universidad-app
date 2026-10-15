@@ -29,13 +29,14 @@ type ServicioAuth interface {
 }
 
 type Server struct {
-	svc    ServicioAuth
-	router chi.Router
-	lim    *limiter
+	svc        ServicioAuth
+	jwtSecreto string
+	router     chi.Router
+	lim        *limiter
 }
 
 func NuevoServer(svc ServicioAuth, jwtSecreto string, limiteRPS float64, rafaga int) *Server {
-	s := &Server{svc: svc, lim: nuevoLimiter(limiteRPS, rafaga)}
+	s := &Server{svc: svc, jwtSecreto: jwtSecreto, lim: nuevoLimiter(limiteRPS, rafaga)}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -146,6 +147,15 @@ func responderPar(w http.ResponseWriter, par *auth.ParTokens) {
 }
 
 // --- helpers ---
+
+// decodificarJSON parsea el body con límite de tamaño; ya escribe el 400.
+func decodificarJSON(w http.ResponseWriter, r *http.Request, destino any) error {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(destino); err != nil {
+		escribirError(w, http.StatusBadRequest, "JSON inválido")
+		return err
+	}
+	return nil
+}
 
 func escribirJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

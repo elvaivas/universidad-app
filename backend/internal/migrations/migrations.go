@@ -47,6 +47,7 @@ func Up(dbURL string) (uint, error) {
 }
 
 // Down revierte la última migración aplicada (reversible = S8).
+// OJO: migrate.Down() del vendored revierte TODAS; Steps(-1) revierte una.
 func Down(dbURL string) (uint, error) {
 	m, err := nuevoMigrate(dbURL)
 	if err != nil {
@@ -54,7 +55,7 @@ func Down(dbURL string) (uint, error) {
 	}
 	defer m.Close()
 
-	if err := m.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+	if err := m.Steps(-1); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return 0, fmt.Errorf("revertir migración: %w", err)
 	}
 	v, _, err := m.Version()
