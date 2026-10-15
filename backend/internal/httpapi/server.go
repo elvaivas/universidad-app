@@ -1,6 +1,7 @@
 // Capa HTTP del backend: router chi, handlers JSON uniformes {data|error},
 // rate limit en memoria por IP para /auth/* y middleware de recuperación.
 // Las rutas autenticadas usan rbac.RequireAuth; /api/admin/* exige mantenedor.
+// CORS va como envoltura externa: chi exige que Use() se llame antes de las rutas.
 package httpapi
 
 import (
@@ -32,6 +33,7 @@ type Server struct {
 	svc        ServicioAuth
 	jwtSecreto string
 	router     chi.Router
+	cors       func(http.Handler) http.Handler // envoltura externa (chi exige Use antes de rutas)
 	lim        *limiter
 }
 
@@ -68,7 +70,38 @@ func NuevoServer(svc ServicioAuth, jwtSecreto string, limiteRPS float64, rafaga 
 	return s
 }
 
-func (s *Server) Handler() http.Handler { return s.router }
+func (s *Server) Handler() http.Handler {
+	if s.cors != nil {
+		return s.cors(s.router)
+	}
+	return s.router
+}
+
+// HabilitarCORS envuelve el router con CORS para orígenes explícitos
+// (la PWA instalada en el teléfono habla contra la IP de la laptop).
+func (s *Server) HabilitarCORS(origins []string) {
+	permitidos := map[string]bool{}
+	for _, o := range origins {
+		permitidos[o] = true
+	}
+	s.cors = func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if permitidos[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 // --- handlers ---
 

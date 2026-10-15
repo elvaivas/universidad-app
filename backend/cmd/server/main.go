@@ -64,6 +64,7 @@ func main() {
 		RefreshTTL: cfg.RefreshTokenTTL,
 	}
 	httpSrv := httpapi.NuevoServer(svc, cfg.JWTSecret, 0.5, 5)
+	httpSrv.HabilitarCORS(cfg.CORSOrigins)
 	httpSrv.MontarCatalogo(&catalog.Servicio{Pool: pool})
 	httpSrv.Montar2FA(svc)
 	httpSrv.MontarAcademico(&academic.Servicio{Pool: pool})

@@ -1,9 +1,12 @@
-// Rutas de segundo factor (TOTP) y cambio de contraseña.
+// Rutas de segundo factor (TOTP), cambio de contraseña y cierre de sesión.
 // Montar2FA se llama desde main.go después de NuevoServer: conserva el
 // server_test.go intacto (toma *auth.Servicio concreto, no la interfaz).
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,6 +20,7 @@ import (
 func (s *Server) Montar2FA(svc *auth.Servicio) {
 	// segundo paso del login: público pero rate-limited
 	s.router.With(s.lim.middleware).Post("/api/auth/2fa/login", login2FA(svc))
+	s.router.With(s.lim.middleware).Post("/api/auth/logout", logout(svc))
 
 	s.router.Group(func(r chi.Router) {
 		r.Use(rbac.RequireAuth(s.jwtSecreto))
@@ -109,6 +113,34 @@ func login2FA(svc *auth.Servicio) http.HandlerFunc {
 		}
 		responderPar(w, par)
 	}
+}
+
+// logout revoca el refresh (cookie httpOnly o body) y lo borra del navegador.
+func logout(svc *auth.Servicio) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		refresh := ""
+		if c, err := r.Cookie("refresh_token"); err == nil {
+			refresh = c.Value
+		} else {
+			var req refreshReq
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err == nil {
+				refresh = req.RefreshToken
+			}
+		}
+		if refresh != "" {
+			_ = svc.RevocarPorHash(r.Context(), sha256Sum(refresh))
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name: "refresh_token", Value: "", Path: "/api/auth",
+			HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1,
+		})
+		escribirJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"logout": true}})
+	}
+}
+
+func sha256Sum(v string) string {
+	suma := sha256.Sum256([]byte(v))
+	return base64.RawURLEncoding.EncodeToString(suma[:])
 }
 
 type cambioPasswordReq struct {

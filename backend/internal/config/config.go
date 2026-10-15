@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -28,6 +29,7 @@ type Config struct {
 	SMTPFrom        string
 	MailMock        bool // true en dev: los tokens de reset van al log
 	LogLevel        string
+	CORSOrigins     []string // orígenes permitidos para el navegador (PWA/teléfono)
 }
 
 func Load() (*Config, error) {
@@ -49,6 +51,7 @@ func Load() (*Config, error) {
 		SMTPFrom:        get("SMTP_FROM", "no-reply@localhost"),
 		MailMock:        getBool("MAIL_MOCK", true),
 		LogLevel:        get("LOG_LEVEL", "info"),
+		CORSOrigins:     getList("CORS_ORIGINS", "http://localhost:5173"),
 	}
 
 	if cfg.JWTSecret == "" {
@@ -115,6 +118,18 @@ func getDur(key string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+func getList(key, def string) []string {
+	v := get(key, def)
+	partes := strings.Split(v, ",")
+	out := make([]string, 0, len(partes))
+	for _, p := range partes {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getBool(key string, def bool) bool {

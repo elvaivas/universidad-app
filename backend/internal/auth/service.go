@@ -1,7 +1,7 @@
 // Servicio de autenticación: login con Argon2id (con segundo factor TOTP),
 // emisión de par de tokens (JWT 15 min + refresh rotativo persistido como
-// SHA-256), seed del primer mantenedor, cambio de contraseña y auditoría
-// de eventos sensibles. Testeable contra PostgreSQL real (internal/testdb).
+// SHA-256), seed del primer mantenedor, cambio de contraseña, logout y
+// auditoría de eventos sensibles. Testeable contra PostgreSQL real.
 package auth
 
 import (
@@ -279,7 +279,6 @@ func (s *Servicio) CrearMantenedorInicial(ctx context.Context, email, password, 
 // --- 2FA TOTP ---
 
 // Activar2FA genera un secreto y lo guarda PENDIENTE (no exige código aún).
-// El usuario lo confirma escaneando el QR e ingresando el primer código.
 func (s *Servicio) Activar2FA(ctx context.Context, userID string) (*Secreto2FA, error) {
 	u, err := buscarUsuarioPorID(ctx, s.Pool, userID)
 	if err != nil {
@@ -365,8 +364,7 @@ func (s *Servicio) Login2FA(ctx context.Context, preToken, codigo, ip, ua string
 // --- cambio de contraseña ---
 
 // CambiarPassword exige la clave actual, valida la nueva, marca
-// force_password_change=false y REVOCA todas las sesiones (refresh tokens):
-// un cambio de contraseña debe cerrar todo lo abierto.
+// force_password_change=false y REVOCA todas las sesiones (refresh tokens).
 func (s *Servicio) CambiarPassword(ctx context.Context, userID, actual, nueva, ip string) error {
 	u, err := buscarUsuarioPorID(ctx, s.Pool, userID)
 	if err != nil {
@@ -403,6 +401,13 @@ func (s *Servicio) CambiarPassword(ctx context.Context, userID, actual, nueva, i
 	}
 	audit.Registrar(ctx, s.Pool, userID, "auth.cambio_password", "user", userID, nil, nil, ip)
 	return nil
+}
+
+// --- logout ---
+
+// RevocarPorHash revoca un refresh por su hash (logout).
+func (s *Servicio) RevocarPorHash(ctx context.Context, hash string) error {
+	return revocarRefresh(ctx, s.Pool, hash)
 }
 
 // --- pre-tokens de un solo uso (memoria; 1 réplica según plano) ---

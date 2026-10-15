@@ -146,3 +146,21 @@ func TestDBURLMasked(t *testing.T) {
 		t.Errorf("DBURLMasked: obtuvo %q", got)
 	}
 }
+
+func TestCORSOriginsLista(t *testing.T) {
+	limpiarEnv(t)
+	t.Setenv("DB_URL", "postgres://u:p@localhost:5432/app")
+	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("CORS_ORIGINS", "http://localhost:5173, http://192.168.1.50:5173 ,,")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.CORSOrigins) != 2 {
+		t.Fatalf("esperaba 2 orígenes, obtuvo %v", cfg.CORSOrigins)
+	}
+	if cfg.CORSOrigins[1] != "http://192.168.1.50:5173" {
+		t.Errorf("trim/parse: %q", cfg.CORSOrigins[1])
+	}
+}
