@@ -158,7 +158,12 @@
 
 	{#each lista || [] as aviso}
 		<article class="aviso">
-			<h2>{aviso.titulo}</h2>
+						<h2>
+				{aviso.titulo}
+				{#if $sesion.usuario?.rol_base === 'profesor' || $sesion.usuario?.es_mantenedor || $sesion.usuario?.voceria === 'clase'}
+					<button class="mini" title="Destacar en el inicio" on:click={() => marcarImportante(aviso.id, true)}>Destacar</button>
+				{/if}
+			</h2>
 			<!-- en votaciones el cuerpo del aviso DUPLICA la pregunta: solo se muestra en avisos -->
 			{#if aviso.tipo === 'aviso' && aviso.cuerpo}<p>{aviso.cuerpo}</p>{/if}
 
@@ -210,6 +215,7 @@
 {/if}
 
 <style>
+	.mini { background: #334155; color: #facc15; border: 0; border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.72rem; cursor: pointer; margin-left: 0.4rem; }
 	.barra { display: flex; justify-content: space-between; align-items: center; }
 	.chatlink { color: #7dd3fc; text-decoration: none; margin-right: 0.8rem; }
 	.compositor { background: #1e293b; padding: 1rem; border-radius: 10px; margin-bottom: 1rem; }

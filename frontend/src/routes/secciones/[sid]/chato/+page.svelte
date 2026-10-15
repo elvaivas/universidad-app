@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { sesion } from '$lib/auth.js';
-	import { mensajes, borrarMensaje, conectarChat } from '$lib/api.js';
+	import { mensajes, marcarNotificacionLeida, borrarMensaje, conectarChat } from '$lib/api.js';
 
 	const sid = $page.params.sid;
 
@@ -26,6 +26,8 @@
 		cargando = true;
 		try {
 			const p = await mensajes(sid, { canal });
+			// auto-marcado: al abrir el chat, los anuncios de esta sección se dan por vistos
+			await marcarNotificacionLeida({ tipo: 'chat_anuncio', ref_id: sid });
 			historial = Array.isArray(p?.datos) ? p.datos : [];
 			scrollAbajo();
 		} catch (e) {

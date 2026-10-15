@@ -324,3 +324,33 @@ export function conectarDM(conversacionID, handlers) {
 		}
 	};
 }
+
+// --- centro de atención (Bloque 11e) ---
+
+export async function panelNotificaciones() {
+	const { data } = await api('/api/notificaciones');
+	return data;
+}
+
+export async function marcarNotificacionLeida({ id, tipo, ref_id } = {}) {
+	const { data } = await api('/api/notificaciones/leer', { method: 'POST', body: { id, tipo, ref_id } });
+	return data;
+}
+
+export async function inicio() {
+	const { data } = await api('/api/inicio');
+	return data;
+}
+
+export async function crearAnuncioGeneral(titulo, cuerpo) {
+	const { data } = await api('/api/anuncios-generales', { method: 'POST', body: { titulo, cuerpo } });
+	return data;
+}
+
+export async function marcarImportante(avisoID, importante) {
+	const { data } = await api(`/api/avisos/${avisoID}/importante`, {
+		method: 'POST',
+		body: { importante }
+	});
+	return data;
+}
