@@ -367,3 +367,31 @@ func (s *Servicio) ListarAnunciosGenerales(ctx context.Context, limit int) ([]An
 	}
 	return out, rows.Err()
 }
+
+// ActualizarAnuncioGeneral edita título/cuerpo (el permiso lo pone la capa HTTP).
+func (s *Servicio) ActualizarAnuncioGeneral(ctx context.Context, id, titulo, cuerpo string) (*AnuncioGeneral, error) {
+	if strings.TrimSpace(titulo) == "" {
+		return nil, ErrDatosInvalidos
+	}
+	var a AnuncioGeneral
+	err := s.Pool.QueryRow(ctx,
+		`UPDATE anuncios_generales SET titulo = $2, cuerpo = $3 WHERE id = $1::uuid
+		 RETURNING id::text, autor_id::text, titulo, cuerpo, created_at::text`,
+		id, titulo, cuerpo).Scan(&a.ID, &a.AutorID, &a.Titulo, &a.Cuerpo, &a.CreatedAt)
+	if err != nil {
+		return nil, ErrNoEncontrado
+	}
+	return &a, nil
+}
+
+// EliminarAnuncioGeneral borra el anuncio (existencia primero, como en todo el sistema).
+func (s *Servicio) EliminarAnuncioGeneral(ctx context.Context, id string) error {
+	tag, err := s.Pool.Exec(ctx, `DELETE FROM anuncios_generales WHERE id = $1::uuid`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrNoEncontrado
+	}
+	return nil
+}

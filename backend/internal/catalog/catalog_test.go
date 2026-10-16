@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/elvaivas/universidad-app/backend/internal/auth"
 	"github.com/elvaivas/universidad-app/backend/internal/testdb"
 )
 
@@ -124,5 +125,45 @@ func TestCarreraUniversidadInexistente(t *testing.T) {
 	c := &Carrera{UniversidadID: "00000000-0000-0000-0000-000000000000", Nombre: "Huérfana"}
 	if err := s.CrearCarrera(ctx, c); !errors.Is(err, ErrNoEncontrado) {
 		t.Errorf("FK violada no traducida: %v", err)
+	}
+}
+
+func TestAnuncioGeneralEditarYEliminar(t *testing.T) {
+	ctx, s := setup(t)
+	var autorID string
+	hash, _ := auth.HashPassword("Clave#2026X")
+	if err := s.Pool.QueryRow(ctx,
+		`INSERT INTO users (email, password_hash, nombre, rol_base)
+		 VALUES ('mant@uni.test', $1, 'Mant', 'profesor') RETURNING id::text`, hash).Scan(&autorID); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := s.CrearAnuncioGeneral(ctx, autorID, "Feriado", "No hay clases el viernes")
+	if err != nil {
+		t.Fatalf("CrearAnuncioGeneral: %v", err)
+	}
+	editado, err := s.ActualizarAnuncioGeneral(ctx, a.ID, "Feriado confirmado", "Se movió al lunes")
+	if err != nil {
+		t.Fatalf("ActualizarAnuncioGeneral: %v", err)
+	}
+	if editado.Titulo != "Feriado confirmado" || editado.Cuerpo != "Se movió al lunes" {
+		t.Errorf("editado: %+v", editado)
+	}
+	if _, err := s.ActualizarAnuncioGeneral(ctx, a.ID, "  ", "x"); !errors.Is(err, ErrDatosInvalidos) {
+		t.Errorf("título vacío: %v", err)
+	}
+	lista, _ := s.ListarAnunciosGenerales(ctx, 10)
+	if len(lista) != 1 || lista[0].Titulo != "Feriado confirmado" {
+		t.Errorf("lista: %+v", lista)
+	}
+	if err := s.EliminarAnuncioGeneral(ctx, a.ID); err != nil {
+		t.Fatalf("EliminarAnuncioGeneral: %v", err)
+	}
+	if err := s.EliminarAnuncioGeneral(ctx, a.ID); !errors.Is(err, ErrNoEncontrado) {
+		t.Errorf("doble eliminación: %v", err)
+	}
+	vacia, _ := s.ListarAnunciosGenerales(ctx, 10)
+	if len(vacia) != 0 {
+		t.Errorf("no se eliminó: %d", len(vacia))
 	}
 }

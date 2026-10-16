@@ -78,7 +78,7 @@ type Panel struct {
 func Listar(ctx context.Context, pool *pgxpool.Pool, userID string) (*Panel, error) {
 	_, _ = pool.Exec(ctx, `DELETE FROM notificaciones WHERE created_at < now() - $1::interval`, retencion.String())
 
-	p := &Panel{}
+	p := &Panel{NoLeidas: []Notificacion{}, Recientes: []Notificacion{}}
 	rows, err := pool.Query(ctx,
 		`SELECT id::text, tipo, ref_id, titulo, leida, created_at::text
 		 FROM notificaciones WHERE usuario_id = $1::uuid

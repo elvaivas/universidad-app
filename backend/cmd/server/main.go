@@ -75,6 +75,7 @@ func main() {
 	httpSrv.MontarChat(&chat.Servicio{Pool: pool}, hubChat)
 	httpSrv.MontarDM(&dm.Servicio{Pool: pool}, hubChat)
 	httpSrv.MontarAtencion(&catalog.Servicio{Pool: pool}, &feed.Servicio{Pool: pool}, pool)
+	httpSrv.MontarAnunciosAdmin(&catalog.Servicio{Pool: pool})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

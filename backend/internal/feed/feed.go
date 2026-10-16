@@ -445,7 +445,7 @@ func (s *Servicio) ListarImportantesDe(ctx context.Context, userID string, limit
 		limit = 10
 	}
 	rows, err := s.Pool.Query(ctx,
-		`SELECT DISTINCT a.id::text, a.seccion_id::text, a.autor_id::text, a.tipo, a.titulo, a.cuerpo, a.created_at::text
+		`SELECT a.id::text, a.seccion_id::text, a.autor_id::text, a.tipo, a.titulo, a.cuerpo, a.created_at::text
 		 FROM avisos a
 		 WHERE a.importante AND (
 		    EXISTS (SELECT 1 FROM inscripciones i WHERE i.seccion_id = a.seccion_id

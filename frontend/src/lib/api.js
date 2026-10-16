@@ -354,3 +354,16 @@ export async function marcarImportante(avisoID, importante) {
 	});
 	return data;
 }
+
+export async function actualizarAnuncioGeneral(id, titulo, cuerpo) {
+	const { data } = await api(`/api/anuncios-generales/${id}`, {
+		method: 'PATCH',
+		body: { titulo, cuerpo }
+	});
+	return data;
+}
+
+export async function eliminarAnuncioGeneral(id) {
+	const { data } = await api(`/api/anuncios-generales/${id}`, { method: 'DELETE' });
+	return data;
+}
